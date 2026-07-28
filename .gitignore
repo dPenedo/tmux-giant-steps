@@ -1,0 +1,7 @@
+*~
+*.swp
+*.swo
+.*.swp
+*PLAN.md
+*CLAUDE.md
+.DS_Store
