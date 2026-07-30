@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# ai-jump — pick a tmux pane whose process matches a pattern and jump to it
+# (across sessions if needed). Works for any process; the live preview makes
+# it especially handy for AI CLI tools (Claude Code / opencode by default).
+#
+#   Usage:  ai-jump                   # uses @ai-jump-pattern (or the default)
+#           ai-jump '<egrep-pattern>' # one-off pattern for this call
+#           ai-jump --list [pattern]  # internal, used by fzf
+#           ai-jump --preview <pane>  # internal, used by fzf
+set -euo pipefail
+
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/config.sh
+source "$SELF_DIR/lib/config.sh"
+# shellcheck source=lib/preview.sh
+source "$SELF_DIR/lib/preview.sh"
+
+DEFAULT_PATTERN="$(tmux_option "@ai-jump-pattern" "claude|opencode")"
+
+usage() {
+	sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+list_panes() {
+	local pattern="$1" hits
+	# System-wide PIDs matching the pattern. Checking the pane's tty isn't
+	# enough: a process in a nested terminal (e.g. Neovim's :terminal) gets
+	# its own pty, so it no longer shares a tty with the pane even though
+	# it's still a descendant in the process tree. The [c] bracket trick
+	# keeps grep from matching its own invocation.
+	hits=$(ps -eo pid=,args= | grep -iE "$(bracket_first_char "$pattern")" | awk '{print $1}' || true)
+	[ -z "$hits" ] && return 0
+
+	# System-wide pid -> ppid map, used to walk up the process tree.
+	local -A ppid_of
+	local p pp
+	while read -r p pp; do
+		ppid_of[$p]=$pp
+	done < <(ps -eo pid=,ppid=)
+
+	tmux list-panes -a -F \
+		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}' |
+		while IFS=$'\t' read -r pane panepid session wintarget wp win cmd; do
+			local hit found=0 walk
+			for hit in $hits; do
+				walk=$hit
+				while [ -n "$walk" ] && [ "$walk" != "0" ] && [ "$walk" != "1" ]; do
+					if [ "$walk" = "$panepid" ]; then
+						found=1
+						break
+					fi
+					walk=${ppid_of[$walk]:-}
+				done
+				[ "$found" = 1 ] && break
+			done
+			if [ "$found" = 1 ]; then
+				display=$(printf '%-18s  %-7s  %-20s  %s' "$session" "$wp" "$win" "$cmd")
+				printf '%s\t%s\t%s\t%s\n' "$pane" "$session" "$wintarget" "$display"
+			fi
+		done
+}
+
+# Wraps each pattern term's first char in brackets (claude -> [c]laude), so
+# the `ps | grep` invocation doesn't match itself.
+bracket_first_char() {
+	awk -F'|' '{
+		for (i = 1; i <= NF; i++) {
+			printf "%s[%s]%s", (i > 1 ? "|" : ""), substr($i, 1, 1), substr($i, 2)
+		}
+	}' <<<"$1"
+}
+
+case "${1:-}" in
+-h | --help)
+	usage
+	exit 0
+	;;
+--list)
+	list_panes "${2:-$DEFAULT_PATTERN}"
+	exit 0
+	;;
+--preview)
+	render_pane "$2" 200
+	exit 0
+	;;
+esac
+
+PATTERN="${1:-$DEFAULT_PATTERN}"
+self="$0"
+
+sel=$(bash "$self" --list "$PATTERN" | fzf \
+	--delimiter='\t' \
+	--with-nth=4 \
+	--preview "bash '$self' --preview {1}" \
+	--preview-window='right,70%,nowrap,follow' \
+	--header='SESSION              WINDOW   NAME                  CMD   ·  Enter jumps · Ctrl-R refreshes' \
+	--bind "ctrl-r:reload(bash '$self' --list '$PATTERN')") || exit 0
+
+[ -z "$sel" ] && exit 0
+pane=$(printf '%s' "$sel" | cut -f1)
+session=$(printf '%s' "$sel" | cut -f2)
+wintarget=$(printf '%s' "$sel" | cut -f3)
+
+tmux select-window -t "$wintarget"
+tmux select-pane -t "$pane"
+if [ -n "${TMUX:-}" ]; then
+	tmux switch-client -t "$session"
+else
+	tmux attach -t "$session"
+fi
