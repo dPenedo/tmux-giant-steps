@@ -1,0 +1,225 @@
+#!/bin/sh
+# sessionizer — fuzzy-find/create/attach tmux sessions by directory, plus
+# harpoon-style marks (add, edit in a popup, jump by numbered slot).
+#
+#   Usage:
+#     sessionizer                 fuzzy picker (fzf), Ctrl-x kills a session
+#     sessionizer <path|name>     create/attach directly
+#     sessionizer --mark N        jump to mark N in marks.conf
+#     sessionizer --add <path>    add <path> as a new mark
+#     sessionizer --edit          edit marks.conf in a popup (Enter jumps)
+#     sessionizer --list          internal: fzf source/reload
+#     sessionizer --fzf-preview   internal: fzf preview callback
+#     sessionizer --kill          internal: Ctrl-x from the picker
+set -eu
+
+SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$SELF_DIR/lib/config.sh"
+. "$SELF_DIR/lib/preview.sh"
+
+SEARCH_PATH=$(tmux_option "@sessionizer-search-path" "~/repos")
+EXTRA_PATH=$(tmux_option "@sessionizer-extra-path" "")
+MAX_DEPTH=$(tmux_option "@sessionizer-max-depth" "1")
+
+usage() {
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+switch_to() {
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$1"
+  else
+    tmux attach-session -t "$1"
+  fi
+}
+
+has_session() {
+  tmux has-session -t "=$1" 2>/dev/null
+}
+
+hydrate() {
+  session="$1"
+  path="$2"
+  if [ -f "$path/.tmux-sessionizer" ]; then
+    tmux send-keys -t "$session" "source $path/.tmux-sessionizer" C-m
+  elif [ -f "$HOME/.tmux-sessionizer" ]; then
+    tmux send-keys -t "$session" "source $HOME/.tmux-sessionizer" C-m
+  fi
+}
+
+switch_session() {
+  path=$(expand_home "$1")
+  name=$(basename "$path" | tr . _)
+  if ! has_session "$name"; then
+    tmux new-session -ds "$name" -c "$path"
+    hydrate "$name" "$path"
+  fi
+  switch_to "$name"
+}
+
+list_items() {
+  if [ -n "${TMUX:-}" ]; then
+    current=$(tmux display-message -p '#S')
+    tmux list-sessions -F '[TMUX] #{session_name}' 2>/dev/null | grep -vFx "[TMUX] $current" || true
+  else
+    tmux list-sessions -F '[TMUX] #{session_name}' 2>/dev/null || true
+  fi
+
+  old_ifs=$IFS
+  IFS=','
+  for entry in $SEARCH_PATH; do
+    IFS=$old_ifs
+    case "$entry" in
+    *:*)
+      path=${entry%:*}
+      depth=${entry##*:}
+      ;;
+    *)
+      path=$entry
+      depth=$MAX_DEPTH
+      ;;
+    esac
+    path=$(expand_home "$path")
+    [ -d "$path" ] && find "$path" -mindepth 1 -maxdepth "$depth" -name .git -prune -o -type d -print
+    IFS=','
+  done
+  IFS=$old_ifs
+
+  IFS=','
+  for entry in $EXTRA_PATH; do
+    IFS=$old_ifs
+    [ -z "$entry" ] && continue
+    path=$(expand_home "$entry")
+    [ -d "$path" ] && printf '%s\n' "$path"
+    IFS=','
+  done
+  IFS=$old_ifs
+}
+
+strip_trailing_blank() {
+  awk '{a[NR] = $0; if ($0 != "") last = NR} END {for (i = 1; i <= last; i++) print a[i]}'
+}
+
+fzf_preview() {
+  item="$1"
+  case "$item" in
+  "[TMUX] "*)
+    session=${item#"[TMUX] "}
+    windows=$(tmux list-windows -t "$session" -F '#{window_index}:#{window_name}' 2>/dev/null) || return 0
+    [ -z "$windows" ] && return 0
+    count=$(printf '%s\n' "$windows" | wc -l)
+    term_lines=${FZF_PREVIEW_LINES:-$(tput lines 2>/dev/null || echo 24)}
+    lines_each=$(((term_lines - count * 2) / count))
+    [ "$lines_each" -lt 5 ] && lines_each=5
+    printf '%s\n' "$windows" | while IFS=: read -r idx wname; do
+      printf '\033[1;34m\342\224\200\342\224\200 %s \342\224\200\342\224\200\033[0m\n' "$wname"
+      pane=$(tmux list-panes -t "$session:$idx" -F '#{pane_id}' 2>/dev/null | head -1)
+      [ -n "$pane" ] && render_pane "$pane" 200 | strip_trailing_blank | tail -n "$lines_each"
+      echo
+    done
+    ;;
+  *)
+    ls "$item" 2>/dev/null
+    ;;
+  esac
+}
+
+kill_item() {
+  item="$1"
+  case "$item" in
+  "[TMUX] "*) tmux kill-session -t "${item#"[TMUX] "}" 2>/dev/null || true ;;
+  esac
+}
+
+jump_mark() {
+  ensure_config_dir
+  n="$1"
+  line=$(sed -n "${n}p" "$MARKS_FILE")
+  [ -z "$line" ] && return 0
+
+  path=$(expand_home "$line")
+  if [ ! -d "$path" ]; then
+    awk -v n="$n" 'NR != n' "$MARKS_FILE" >"$MARKS_FILE.tmp" && mv "$MARKS_FILE.tmp" "$MARKS_FILE"
+    tmux display-message "Mark $n ('$line') no longer exists, removed"
+    return 0
+  fi
+
+  switch_session "$line"
+}
+
+add_mark() {
+  ensure_config_dir
+  printf '%s\n' "$1" >>"$MARKS_FILE"
+  tmux display-message "Added '$1' to marks.conf"
+}
+
+edit_marks() {
+  ensure_config_dir
+  mkdir -p "$CACHE_DIR"
+  rm -f "$PENDING_FILE"
+  nvim -c "nnoremap <buffer> <CR> :call writefile([getline('.')], '$PENDING_FILE')<Bar>q<CR>" "$MARKS_FILE"
+  if [ -f "$PENDING_FILE" ]; then
+    session_path=$(cat "$PENDING_FILE")
+    rm -f "$PENDING_FILE"
+    switch_session "$session_path"
+  fi
+}
+
+case "${1:-}" in
+-h | --help)
+  usage
+  exit 0
+  ;;
+--list)
+  list_items
+  exit 0
+  ;;
+--fzf-preview)
+  fzf_preview "$2"
+  exit 0
+  ;;
+--kill)
+  kill_item "$2"
+  exit 0
+  ;;
+--mark)
+  jump_mark "$2"
+  exit 0
+  ;;
+--add)
+  add_mark "$2"
+  exit 0
+  ;;
+--edit)
+  edit_marks
+  exit 0
+  ;;
+"")
+  ;;
+*)
+  switch_session "$1"
+  exit 0
+  ;;
+esac
+
+for cmd in tmux fzf; do
+  command -v "$cmd" >/dev/null 2>&1 || {
+    echo "$cmd is not installed." >&2
+    exit 1
+  }
+done
+
+self="$0"
+selected=$(sh "$self" --list | fzf \
+  --height=100% \
+  --preview "sh '$self' --fzf-preview {}" \
+  --preview-window 'right:60%' \
+  --bind "ctrl-x:execute-silent(sh '$self' --kill {})+reload(sh '$self' --list)" \
+  --header 'Press return to go · Ctrl-x to kill a session') || exit 0
+
+[ -z "$selected" ] && exit 0
+
+case "$selected" in
+"[TMUX] "*) switch_to "${selected#"[TMUX] "}" ;;
+*) switch_session "$selected" ;;
+esac
