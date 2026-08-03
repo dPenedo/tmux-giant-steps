@@ -1,0 +1,79 @@
+#!/bin/sh
+# Test runner, no external deps (no bats/shunit2). Discovers
+# tests/unit/*_test.sh and tests/exec/*_test.sh (or the groups/files passed
+# as args), runs each test_* function in an isolated subshell, and reports
+# the result.
+#
+#   Usage: tests/run                               # everything
+#          tests/run unit                          # tests/unit only
+#          tests/run exec                          # tests/exec only
+#          tests/run tests/unit/config_test.sh      # a single file
+set -eu
+
+# Tests that invoke sessionizer/ai-jump without capturing their output (see
+# exec/*_test.sh) inherit this process's stdio. If tests/run itself is run
+# from a real tty (e.g. an attached tmux pane), switch_to's "tmux
+# attach-session" fallback would succeed for real and hijack that pane
+# instead of harmlessly failing without a tty. Force stdin closed so it
+# always fails fast, regardless of where tests/run is invoked from.
+exec </dev/null
+
+SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SELF_DIR/.." && pwd)
+export PROJECT_ROOT
+export SCRIPTS="$PROJECT_ROOT/scripts"
+
+collect_files() {
+	if [ "$#" -eq 0 ]; then
+		find "$SELF_DIR/unit" "$SELF_DIR/exec" -name '*_test.sh' | sort
+		return 0
+	fi
+	for arg in "$@"; do
+		case "$arg" in
+		unit | exec) find "$SELF_DIR/$arg" -name '*_test.sh' | sort ;;
+		*) [ -f "$arg" ] && printf '%s\n' "$arg" ;;
+		esac
+	done
+}
+
+total=0
+failed=0
+
+files=$(collect_files "$@")
+[ -z "$files" ] && {
+	echo "sin tests que coincidan con: $*" >&2
+	exit 1
+}
+
+for file in $files; do
+	names=$(grep -oE '^test_[A-Za-z0-9_]*' "$file" | sort -u)
+	[ -z "$names" ] && continue
+	for name in $names; do
+		total=$((total + 1))
+		rel=${file#"$SELF_DIR"/}
+		if out=$(
+			{
+				set -eu
+				. "$SELF_DIR/lib/assert.sh"
+				. "$SELF_DIR/lib/harness.sh"
+				. "$file"
+				"$name"
+			} 2>&1
+		); then
+			echo "ok   $rel :: $name"
+		else
+			failed=$((failed + 1))
+			echo "FAIL $rel :: $name"
+			printf '%s\n' "$out" | sed 's/^/       /'
+		fi
+	done
+done
+
+echo
+if [ "$failed" -eq 0 ]; then
+	echo "$total tests, todos OK"
+	exit 0
+else
+	echo "$total tests, $failed fallidos"
+	exit 1
+fi
