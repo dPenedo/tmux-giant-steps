@@ -5,6 +5,7 @@
 #
 #   Usage:  ai-jump                   # uses @ai-jump-pattern (or the default)
 #           ai-jump '<egrep-pattern>' # one-off pattern for this call
+#           ai-jump --from <pane-id>  # pane to sort last (defaults to $TMUX_PANE)
 #           ai-jump --list [pattern]  # internal, used by fzf
 #           ai-jump --preview <pane>  # internal, used by fzf
 set -euo pipefail
@@ -18,11 +19,11 @@ source "$SELF_DIR/lib/preview.sh"
 DEFAULT_PATTERN="$(tmux_option "@ai-jump-pattern" "claude|opencode")"
 
 usage() {
-	sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 list_panes() {
-	local pattern="$1" hits
+	local pattern="$1" origin="${2:-}" hits
 	# System-wide PIDs matching the pattern. Checking the pane's tty isn't
 	# enough: a process in a nested terminal (e.g. Neovim's :terminal) gets
 	# its own pty, so it no longer shares a tty with the pane even though
@@ -38,26 +39,43 @@ list_panes() {
 		ppid_of[$p]=$pp
 	done < <(ps -eo pid=,ppid=)
 
-	tmux list-panes -a -F \
-		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}' |
-		while IFS=$'\t' read -r pane panepid session wintarget wp win cmd; do
-			local hit found=0 walk
-			for hit in $hits; do
-				walk=$hit
-				while [ -n "$walk" ] && [ "$walk" != "0" ] && [ "$walk" != "1" ]; do
-					if [ "$walk" = "$panepid" ]; then
-						found=1
-						break
-					fi
-					walk=${ppid_of[$walk]:-}
-				done
-				[ "$found" = 1 ] && break
+	# The pane the picker was launched from goes last and is flagged with
+	# "*", the same marker sessionizer uses for the session you're in (and
+	# the one tmux itself uses for the current window in `list-windows`).
+	local rest=() here=() mark display line
+	while IFS=$'\t' read -r pane panepid session wintarget wp win cmd; do
+		local hit found=0 walk
+		for hit in $hits; do
+			walk=$hit
+			while [ -n "$walk" ] && [ "$walk" != "0" ] && [ "$walk" != "1" ]; do
+				if [ "$walk" = "$panepid" ]; then
+					found=1
+					break
+				fi
+				walk=${ppid_of[$walk]:-}
 			done
-			if [ "$found" = 1 ]; then
-				display=$(printf '%-18s  %-7s  %-20s  %s' "$session" "$wp" "$win" "$cmd")
-				printf '%s\t%s\t%s\t%s\n' "$pane" "$session" "$wintarget" "$display"
-			fi
+			[ "$found" = 1 ] && break
 		done
+		if [ "$found" = 1 ]; then
+			if [ -n "$origin" ] && [ "$pane" = "$origin" ]; then
+				mark='*'
+			else
+				mark=' '
+			fi
+			display=$(printf '%s %-18s  %-7s  %-20s  %s' "$mark" "$session" "$wp" "$win" "$cmd")
+			line=$(printf '%s\t%s\t%s\t%s' "$pane" "$session" "$wintarget" "$display")
+			if [ "$mark" = '*' ]; then
+				here+=("$line")
+			else
+				rest+=("$line")
+			fi
+		fi
+	done < <(tmux list-panes -a -F \
+		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}')
+
+	[ ${#rest[@]} -gt 0 ] && printf '%s\n' "${rest[@]}"
+	[ ${#here[@]} -gt 0 ] && printf '%s\n' "${here[@]}"
+	return 0
 }
 
 # Wraps each pattern term's first char in brackets (claude -> [c]laude), so
@@ -70,13 +88,28 @@ bracket_first_char() {
 	}' <<<"$1"
 }
 
+# Pane to push to the bottom of the list. $TMUX_PANE is no use here: inside a
+# popup it holds whatever the *client's* environment had when it attached, not
+# the pane the popup was opened over. `display-message` does resolve to the
+# client's active pane (i.e. where the user came from) both in a popup and when
+# ai-jump is run by hand from a shell. The `neww` path is the exception — its
+# own new pane is the active one by then — so the bootstrap passes --from
+# '#{pane_id}', which run-shell expands before the window exists.
+ORIGIN_PANE=""
+if [ "${1:-}" = "--from" ]; then
+	ORIGIN_PANE="${2:-}"
+	shift 2
+elif [ -n "${TMUX:-}" ]; then
+	ORIGIN_PANE=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
+fi
+
 case "${1:-}" in
 -h | --help)
 	usage
 	exit 0
 	;;
 --list)
-	list_panes "${2:-$DEFAULT_PATTERN}"
+	list_panes "${2:-$DEFAULT_PATTERN}" "$ORIGIN_PANE"
 	exit 0
 	;;
 --preview)
@@ -88,13 +121,13 @@ esac
 PATTERN="${1:-$DEFAULT_PATTERN}"
 self="$0"
 
-sel=$(bash "$self" --list "$PATTERN" | fzf \
+sel=$(bash "$self" --from "$ORIGIN_PANE" --list "$PATTERN" | fzf \
 	--delimiter='\t' \
 	--with-nth=4 \
 	--preview "bash '$self' --preview {1}" \
 	--preview-window='right,70%,nowrap,follow' \
-	--header='SESSION              WINDOW   NAME                  CMD   ·  Enter jumps · Ctrl-R refreshes' \
-	--bind "ctrl-r:reload(bash '$self' --list '$PATTERN')") || exit 0
+	--header='  SESSION              WINDOW   NAME                  CMD   ·  Enter jumps · Ctrl-R refreshes' \
+	--bind "ctrl-r:reload(bash '$self' --from '$ORIGIN_PANE' --list '$PATTERN')") || exit 0
 
 [ -z "$sel" ] && exit 0
 pane=$(printf '%s' "$sel" | cut -f1)

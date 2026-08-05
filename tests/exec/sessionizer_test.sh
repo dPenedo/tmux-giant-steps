@@ -20,6 +20,37 @@ test_list_includes_tmux_sessions() {
 	assert_contains "[TMUX] dummy" "$out"
 }
 
+test_list_marks_current_session_and_puts_it_last() {
+	test_env_setup
+	tmux set-option -g @sessionizer-search-path "$TEST_TMPDIR/nada-aqui"
+	tmux new-session -d -s otra -c "$TEST_TMPDIR"
+	# Run --list from inside a pane so the script sees a real $TMUX and can
+	# resolve the current session (dummy).
+	tmux send-keys -t dummy "sh '$SCRIPTS/sessionizer' --list >'$TEST_TMPDIR/list.txt'" C-m
+	wait_until 25 0.2 test -s "$TEST_TMPDIR/list.txt" || fail "--list produced no output"
+
+	out=$(cat "$TEST_TMPDIR/list.txt")
+	assert_contains "* [TMUX] dummy" "$out"
+	assert_contains "  [TMUX] otra" "$out"
+	assert_eq "* [TMUX] dummy" "$(grep '\[TMUX\]' "$TEST_TMPDIR/list.txt" | tail -1)" \
+		"(the session you're in should sort last)"
+}
+
+test_marked_item_still_resolves() {
+	test_env_setup
+	mkdir -p "$TEST_TMPDIR/dirmarcado"
+	: >"$TEST_TMPDIR/dirmarcado/archivo.txt"
+	tmux new-session -d -s marcada -c "$TEST_TMPDIR"
+
+	out=$(sh "$SCRIPTS/sessionizer" --fzf-preview "  $TEST_TMPDIR/dirmarcado")
+	assert_contains "archivo.txt" "$out"
+
+	sh "$SCRIPTS/sessionizer" --kill "* [TMUX] marcada"
+	if tmux has-session -t "=marcada" 2>/dev/null; then
+		fail "--kill should strip the marker and kill 'marcada'"
+	fi
+}
+
 test_list_includes_extra_path_entries() {
 	test_env_setup
 	mkdir -p "$TEST_TMPDIR/proj-a"

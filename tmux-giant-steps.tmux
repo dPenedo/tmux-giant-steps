@@ -87,8 +87,11 @@ tmux bind-key "${bind_table[@]}" "$mark4_key" run-shell "$SCRIPTS/sessionizer --
 
 # Jump to panes running @ai-jump-pattern (default: claude|opencode).
 # No -n: this is prefix+Tab, not a root-table key.
+# ai-jump sorts the pane you came from last; in a popup it works that out on
+# its own, but `neww` makes its own pane the active one first, so the origin
+# has to be passed in (run-shell expands #{pane_id}, display-popup wouldn't).
 if [ "$use_popup" = 1 ]; then
   tmux bind-key "$ai_jump_key" display-popup -w80% -h80% -E "$SCRIPTS/ai-jump"
 else
-  tmux bind-key "$ai_jump_key" run-shell "tmux neww '$SCRIPTS/ai-jump'"
+  tmux bind-key "$ai_jump_key" run-shell "tmux neww '$SCRIPTS/ai-jump --from #{pane_id}'"
 fi

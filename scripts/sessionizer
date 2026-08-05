@@ -57,14 +57,44 @@ switch_session() {
   switch_to "$name"
 }
 
-list_items() {
-  if [ -n "${TMUX:-}" ]; then
-    current=$(tmux display-message -p '#S')
-    tmux list-sessions -F '[TMUX] #{session_name}' 2>/dev/null | grep -vFx "[TMUX] $current" || true
-  else
-    tmux list-sessions -F '[TMUX] #{session_name}' 2>/dev/null || true
-  fi
+# Every line the picker shows carries a 2-char marker column: "* " for the
+# session you're already in, "  " for everything else (ai-jump marks the pane
+# you came from the same way). strip_marker() takes it back off before
+# anything acts on the item; it leaves unmarked input alone, so --kill and
+# --fzf-preview can still be called by hand with a bare path or "[TMUX] x".
+MARK_HERE='* '
+MARK_NONE='  '
 
+strip_marker() {
+  case "$1" in
+  "$MARK_HERE"*) printf '%s' "${1#"$MARK_HERE"}" ;;
+  "$MARK_NONE"*) printf '%s' "${1#"$MARK_NONE"}" ;;
+  *) printf '%s' "$1" ;;
+  esac
+}
+
+list_items() {
+  list_sessions
+  list_paths | sed "s|^|$MARK_NONE|"
+}
+
+# Sessions, with the current one marked and pushed to the bottom of the
+# block: it's the one you're least likely to want, but hiding it outright
+# (as this did before) also hides its preview.
+list_sessions() {
+  if [ -n "${TMUX:-}" ]; then
+    current=$(tmux display-message -p '#S' 2>/dev/null || true)
+  else
+    current=""
+  fi
+  tmux list-sessions -F '#{session_name}' 2>/dev/null |
+    awk -v cur="$current" -v here="$MARK_HERE" -v none="$MARK_NONE" '
+      $0 == cur { found = $0; next }
+      { printf "%s[TMUX] %s\n", none, $0 }
+      END { if (found != "") printf "%s[TMUX] %s\n", here, found }' || true
+}
+
+list_paths() {
   old_ifs=$IFS
   IFS=','
   for entry in $SEARCH_PATH; do
@@ -101,7 +131,7 @@ strip_trailing_blank() {
 }
 
 fzf_preview() {
-  item="$1"
+  item=$(strip_marker "$1")
   case "$item" in
   "[TMUX] "*)
     session=${item#"[TMUX] "}
@@ -125,7 +155,7 @@ fzf_preview() {
 }
 
 kill_item() {
-  item="$1"
+  item=$(strip_marker "$1")
   case "$item" in
   "[TMUX] "*) tmux kill-session -t "${item#"[TMUX] "}" 2>/dev/null || true ;;
   esac
@@ -218,6 +248,7 @@ selected=$(sh "$self" --list | fzf \
   --header 'Press return to go · Ctrl-x to kill a session') || exit 0
 
 [ -z "$selected" ] && exit 0
+selected=$(strip_marker "$selected")
 
 case "$selected" in
 "[TMUX] "*) switch_to "${selected#"[TMUX] "}" ;;

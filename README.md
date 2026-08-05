@@ -15,8 +15,10 @@ and a "jump to the pane running X" picker, great for AI CLI tools thanks to its 
    `egrep` pattern (Claude Code and OpenCode by default, but any process
    works). It walks the full process tree, so it also finds processes
    running inside a nested terminal (e.g. Neovim's `:terminal`), not just
-   the pane's own command. Its live preview makes it especially handy for
-   jumping straight to the AI CLI that's mid-answer.
+   the pane's own command. The pane you launched it from is sorted last
+   (the sessionizer likewise hides the session you're already in). Its live
+   preview makes it especially handy for jumping straight to the AI CLI
+   that's mid-answer.
 
 ## Requirements
 
