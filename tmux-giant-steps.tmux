@@ -10,29 +10,31 @@ SCRIPTS="$CURRENT_DIR/scripts"
 tmux_option() {
   local val
   val=$(tmux show-option -gqv "$1" 2>/dev/null)
-  [ -n "$val" ] && echo "$val" || echo "$2"
+  [ -n "$val" ] || val="$2"
+  # tmux stores "\;" in an @option as a bare ";", and a bare ";" in a
+  # bind-key argument is its own command separator, so hand it back escaped.
+  [ "$val" = ";" ] && val='\;'
+  printf '%s\n' "$val"
 }
 
-# tmux unescapes "\;" down to a bare ";" when a user's .tmux.conf sets an
-# @option to it, so show-option hands it back as a single character. A bare
-# ";" passed as a bind-key argument is then parsed as tmux's own command
-# separator instead of a literal key, so it has to be re-escaped here.
-escape_semicolon() {
-  case "$1" in
-  ";") printf '\\;' ;;
-  *) printf '%s' "$1" ;;
-  esac
-}
+# Not via tmux_option: an @option set to "" reads back exactly like an unset
+# one through `show-option -gqv`, and "" is a meaningful value here -- it's how
+# you ask for flat binds with no key-table at all. `show-options -g <name>`
+# does tell the two apart (it fails outright when the option was never set).
+if tmux show-options -g @sessionizer-prefix-key >/dev/null 2>&1; then
+  prefix_key=$(tmux show-option -gqv @sessionizer-prefix-key)
+else
+  prefix_key="f"
+fi
 
-prefix_key=$(escape_semicolon "$(tmux_option "@sessionizer-prefix-key" "")")
-find_key=$(escape_semicolon "$(tmux_option "@sessionizer-find-key" "f")")
-edit_key=$(escape_semicolon "$(tmux_option "@sessionizer-edit-key" "e")")
-add_key=$(escape_semicolon "$(tmux_option "@sessionizer-add-key" "a")")
-mark1_key=$(escape_semicolon "$(tmux_option "@sessionizer-mark1-key" "j")")
-mark2_key=$(escape_semicolon "$(tmux_option "@sessionizer-mark2-key" "k")")
-mark3_key=$(escape_semicolon "$(tmux_option "@sessionizer-mark3-key" "l")")
-mark4_key=$(escape_semicolon "$(tmux_option "@sessionizer-mark4-key" "\\;")")
-ai_jump_key=$(escape_semicolon "$(tmux_option "@ai-jump-key" "Tab")")
+find_key=$(tmux_option "@sessionizer-find-key" "f")
+edit_key=$(tmux_option "@sessionizer-edit-key" "e")
+add_key=$(tmux_option "@sessionizer-add-key" "a")
+mark1_key=$(tmux_option "@sessionizer-mark1-key" "j")
+mark2_key=$(tmux_option "@sessionizer-mark2-key" "k")
+mark3_key=$(tmux_option "@sessionizer-mark3-key" "l")
+mark4_key=$(tmux_option "@sessionizer-mark4-key" ";")
+ai_jump_key=$(tmux_option "@ai-jump-key" "Tab")
 
 # Main picker: opens in a new window by default (closes itself on exit); on
 # tmux >= 3.2 it can open in a popup instead (@sessionizer-popup-mode).
@@ -56,12 +58,18 @@ off) use_popup=0 ;;
 *) tmux_supports_popup && use_popup=1 ;;
 esac
 
-# By default (no @sessionizer-prefix-key) binds hang directly off tmux's own
-# "prefix" table, matching most tmux plugins (tmux-resurrect, tmux-yank,
-# tmux-grip...). Setting @sessionizer-prefix-key switches to a secondary
-# "sessions" key-table instead.
+# @sessionizer-prefix-key gives the sessionizer its own namespace: the key
+# goes *after* tmux's prefix and only opens the "sessions" key-table, so its
+# binds are three-key chords (prefix f f, prefix f j...). Default because a
+# plugin claiming eight keys on the prefix table would silently outbid binds
+# the user already has -- TPM runs last, so the plugin always wins, with no
+# warning. This way it claims one key, and only clobbers `find-window`.
+#
+# Set it to "" for flat binds on tmux's own prefix instead. It is never a
+# root-table key -- a bare "f" as one would eat the key everywhere; for a
+# no-prefix entry point, add your own `bind -n M-s switch-client -T sessions`.
 if [ -n "$prefix_key" ]; then
-  tmux bind-key -n "$prefix_key" switch-client -T sessions
+  tmux bind-key "$prefix_key" switch-client -T sessions
   bind_table=(-T sessions)
 else
   bind_table=()
@@ -86,7 +94,12 @@ tmux bind-key "${bind_table[@]}" "$mark3_key" run-shell "$SCRIPTS/sessionizer --
 tmux bind-key "${bind_table[@]}" "$mark4_key" run-shell "$SCRIPTS/sessionizer --mark 4"
 
 # Jump to panes running @ai-jump-pattern (default: claude|opencode).
-# No -n: this is prefix+Tab, not a root-table key.
+#
+# Deliberately NOT in $bind_table: @sessionizer-prefix-key namespaces the
+# sessionizer and its marks, and ai-jump is neither -- it's a separate tool
+# that happens to ship here, reached often enough that a three-key chord for
+# it is a downgrade. So it stays on prefix+Tab either way. Never a root key.
+#
 # ai-jump sorts the pane you came from last; in a popup it works that out on
 # its own, but `neww` makes its own pane the active one first, so the origin
 # has to be passed in (run-shell expands #{pane_id}, display-popup wouldn't).

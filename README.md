@@ -51,20 +51,37 @@ run-shell ~/path/to/tmux-giant-steps/tmux-giant-steps.tmux
 
 ## Usage / default key bindings
 
-By default every bind hangs directly off tmux's own `prefix`, one hop, same
-as most tmux plugins.
+The sessionizer and its marks live behind `prefix f`, which opens a `sessions`
+key-table; the next key picks the action. Only two keys are claimed on tmux's
+own prefix.
 
 | Key | Action |
 | --- | --- |
-| `prefix f` | open the session/directory picker |
-| `prefix e` | edit marks (`Enter` on a line jumps to it) |
-| `prefix a` | add the current pane's directory as a mark |
-| `prefix j` / `k` / `l` / `;` | jump to mark 1 / 2 / 3 / 4 |
+| `prefix f` `f` | open the session/directory picker |
+| `prefix f` `e` | edit marks (`Enter` on a line jumps to it) |
+| `prefix f` `a` | add the current pane's directory as a mark |
+| `prefix f` `j` / `k` / `l` / `;` | jump to mark 1 / 2 / 3 / 4 |
 | `prefix Tab` | jump to a pane matching `@ai-jump-pattern` |
 
-Set `@sessionizer-prefix-key` (e.g. `"M-s"`) to opt into a secondary
-`sessions` key-table instead, entered with that key and holding all the
-sub-binds above without needing tmux's `prefix` first.
+The extra hop is deliberate. A plugin binding eight keys straight onto the
+prefix table would quietly outbid whatever you have there already — TPM runs
+at the end of your config, so the plugin's binds win, and nothing warns you
+that your `bind j select-pane -D` stopped working. Behind `prefix f` the only
+tmux default it costs you is `find-window`.
+
+If you'd rather have flat binds — `prefix f`, `prefix j`, `prefix e`… — set
+`@sessionizer-prefix-key ""`. Then it does clobber `find-window`,
+`last-window` (`l`) and `last-pane` (`;`), plus any of `e` `a` `j` `k` you had
+bound. Or set it to another key to move the whole namespace.
+
+`ai-jump` stays on `prefix Tab` either way: it's a separate tool from the
+sessionizer and its marks, and reached often enough that a three-key chord
+would be a downgrade.
+
+The `sessions` key-table is a stable name you can hang your own binds off —
+`bind -T sessions p switch-client -l` and the like. For an entry point that
+skips tmux's prefix entirely, bind that yourself too:
+`bind -n M-s switch-client -T sessions`.
 
 Inside the picker: `Enter` jumps/creates the session, `Ctrl-x` kills the
 selected session.
@@ -78,7 +95,7 @@ set -g @sessionizer-search-path "~/repos"
 set -g @sessionizer-extra-path "~/work,~/.config/nvim"
 set -g @sessionizer-max-depth "1"
 
-set -g @sessionizer-prefix-key ""        # e.g. "M-s" for a secondary key-table
+set -g @sessionizer-prefix-key "f"       # "" for flat binds on tmux's prefix
 set -g @sessionizer-find-key "f"
 set -g @sessionizer-edit-key "e"
 set -g @sessionizer-add-key "a"
@@ -100,14 +117,14 @@ set -g @ai-jump-pattern "claude|opencode"     # or e.g. "vite|jest --watch|psql"
 | `@sessionizer-search-path` | `~/repos` | Comma-separated roots to search for directories. Append `:N` to an entry to override its depth, e.g. `~/repos:2`. |
 | `@sessionizer-extra-path` | *(empty)* | Comma-separated extra paths, added as-is regardless of depth. |
 | `@sessionizer-max-depth` | `1` | Default search depth for `@sessionizer-search-path` entries. |
-| `@sessionizer-prefix-key` | *(empty)* | If set (e.g. `M-s`), binds move off tmux's `prefix` onto a secondary `sessions` key-table entered with this key instead. |
-| `@sessionizer-find-key` | `f` | Opens the fuzzy picker. |
+| `@sessionizer-prefix-key` | `f` | Key that opens the `sessions` key-table holding the sessionizer/marks binds, i.e. `prefix f <key>`. Always goes through tmux's prefix; see above for a root-table entry point. Set to `""` for flat binds and no key-table. Doesn't affect `@ai-jump-key`. |
+| `@sessionizer-find-key` | `f` | Opens the fuzzy picker, inside the key-table (so `prefix f f` by default). |
 | `@sessionizer-edit-key` | `e` | Edits `marks.conf` in Neovim. |
 | `@sessionizer-add-key` | `a` | Adds the current pane's directory as a new mark. |
 | `@sessionizer-mark1-key` … `@sessionizer-mark4-key` | `j` `k` `l` `\;` | Jump straight to mark *N*. Note `;` must be escaped as `\;`, tmux's own command separator. |
 | `@sessionizer-popup-mode` | `auto` | `on` always uses `display-popup`, `off` always opens a new window, `auto` picks based on the installed tmux version. |
 | `@sessionizer-popup-width` / `@sessionizer-popup-height` | `85%` | Size of the picker's popup (only applies in popup mode). |
-| `@ai-jump-key` | `Tab` | Key bound on `prefix` (not a root key) that runs the picker. |
+| `@ai-jump-key` | `Tab` | Key that runs the pane picker, always on tmux's own `prefix` (never a root key, never in the `sessions` table). |
 | `@ai-jump-pattern` | `claude\|opencode` | `egrep` pattern matched against running processes. Not limited to AI CLIs, e.g. `"vite\|jest --watch\|psql"` works to jump to dev servers, test watchers, or DB clients. |
 
 Marks aren't a tmux `@option`: they're a plain text file at
