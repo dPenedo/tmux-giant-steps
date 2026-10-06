@@ -17,6 +17,12 @@ source "$SELF_DIR/lib/config.sh"
 source "$SELF_DIR/lib/preview.sh"
 
 DEFAULT_PATTERN="$(tmux_option "@ai-jump-pattern" "claude|opencode")"
+# Optional per-pane state (e.g. set by Claude Code hooks): the name of a
+# window/pane @option holding it, and "state=color,..." where color is an ANSI
+# 0-255 index (so it follows the terminal's palette) and list order is sort
+# priority. Empty option name = no colors, no reordering.
+STATE_OPTION="$(tmux_option "@ai-jump-state-option" "")"
+STATE_COLORS="$(tmux_option "@ai-jump-state-colors" "waiting=1,done=2,working=3")"
 
 usage() {
 	sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
@@ -39,11 +45,24 @@ list_panes() {
 		ppid_of[$p]=$pp
 	done < <(ps -eo pid=,ppid=)
 
+	# state -> "rank color", rank being its position in STATE_COLORS.
+	local -A state_style
+	local entry rank=0
+	IFS=',' read -ra entries <<<"$STATE_COLORS"
+	for entry in "${entries[@]}"; do
+		state_style[${entry%%=*}]="$rank ${entry#*=}"
+		rank=$((rank + 1))
+	done
+
 	# The pane the picker was launched from goes last and is flagged with
 	# "*", the same marker sessionizer uses for the session you're in (and
 	# the one tmux itself uses for the current window in `list-windows`).
-	local rest=() here=() mark display line
-	while IFS=$'\t' read -r pane panepid session wintarget wp win cmd; do
+	# Every other row is ranked by state (STATE_COLORS order, unknown or no
+	# state after them) and stable-sorted on that.
+	local rows=() mark display line style color state_fmt=""
+	[ -n "$STATE_OPTION" ] && state_fmt="#{$STATE_OPTION}"
+	# state goes last: IFS=tab collapses empty fields in the middle.
+	while IFS=$'\t' read -r pane panepid session wintarget wp win cmd state; do
 		local hit found=0 walk
 		for hit in $hits; do
 			walk=$hit
@@ -62,19 +81,26 @@ list_panes() {
 			else
 				mark=' '
 			fi
-			display=$(printf '%s %-18s  %-7s  %-20s  %s' "$mark" "$session" "$wp" "$win" "$cmd")
-			line=$(printf '%s\t%s\t%s\t%s' "$pane" "$session" "$wintarget" "$display")
-			if [ "$mark" = '*' ]; then
-				here+=("$line")
+			display=$(printf '%-18s  %-7s  %-20s  %s' "$session" "$wp" "$win" "$cmd")
+			style=""
+			[ -n "${state:-}" ] && style=${state_style[$state]:-}
+			if [ -n "$style" ]; then
+				rank=${style%% *}
+				color=${style#* }
+				display=$(printf '\033[38;5;%sm%s\033[0m' "$color" "$display")
 			else
-				rest+=("$line")
+				rank=${#entries[@]}
 			fi
+			# The marker stays uncolored so a row still starts with it.
+			display="$mark $display"
+			[ "$mark" = '*' ] && rank=999
+			line=$(printf '%s\t%s\t%s\t%s\t%s' "$rank" "$pane" "$session" "$wintarget" "$display")
+			rows+=("$line")
 		fi
 	done < <(tmux list-panes -a -F \
-		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}')
+		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t'"$state_fmt")
 
-	[ ${#rest[@]} -gt 0 ] && printf '%s\n' "${rest[@]}"
-	[ ${#here[@]} -gt 0 ] && printf '%s\n' "${here[@]}"
+	[ ${#rows[@]} -gt 0 ] && printf '%s\n' "${rows[@]}" | sort -t$'\t' -s -n -k1,1 | cut -f2-
 	return 0
 }
 
@@ -122,6 +148,7 @@ PATTERN="${1:-$DEFAULT_PATTERN}"
 self="$0"
 
 sel=$(bash "$self" --from "$ORIGIN_PANE" --list "$PATTERN" | fzf \
+	--ansi \
 	--delimiter='\t' \
 	--with-nth=4 \
 	--preview "bash '$self' --preview {1}" \

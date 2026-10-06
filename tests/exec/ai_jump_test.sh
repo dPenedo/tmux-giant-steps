@@ -69,3 +69,25 @@ test_preview_renders_pane_content() {
 	out=$(bash "$SCRIPTS/ai-jump" --preview "$pane")
 	assert_contains "preview-marker" "$out"
 }
+
+test_state_option_colors_and_ranks_rows() {
+	test_env_setup
+	first=$(tmux display-message -p '#{pane_id}')
+	second=$(tmux new-window -d -P -F '#{pane_id}')
+	third=$(tmux new-window -d -P -F '#{pane_id}')
+	for p in "$first" "$second" "$third"; do
+		tmux send-keys -t "$p" '(exec -a fake-claude sleep 30) & disown' C-m
+	done
+	wait_until 25 0.2 sh -c "[ \$(ps -eo args= | grep -cF fake-claude) -ge 3 ]" ||
+		fail "the three fake-claude processes never showed up"
+	tmux set -g @ai-jump-state-option @agent_state
+	tmux set -g @ai-jump-state-colors "waiting=1,done=2"
+	tmux set -w -t "$second" @agent_state done
+	tmux set -w -t "$third" @agent_state waiting
+
+	out=$(bash "$SCRIPTS/ai-jump" --list 'claude')
+	# waiting, then done, then the pane with no state.
+	assert_eq "$third $second $first" "$(printf '%s\n' "$out" | cut -f1 | tr '\n' ' ' | sed 's/ $//')" "(order)"
+	assert_contains "$(printf '\033[38;5;1m')" "$(printf '%s\n' "$out" | head -1)" "(waiting color)"
+	assert_eq "0" "$(printf '%s\n' "$out" | tail -1 | grep -c "$(printf '\033')")" "(no state, no color)"
+}

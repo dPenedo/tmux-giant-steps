@@ -110,6 +110,8 @@ set -g @sessionizer-popup-height "85%"
 
 set -g @ai-jump-key "Tab"
 set -g @ai-jump-pattern "claude|opencode"     # or e.g. "vite|jest --watch|psql"
+set -g @ai-jump-state-option ""               # e.g. "@agent_state"
+set -g @ai-jump-state-colors "waiting=1,done=2,working=3"
 ```
 
 | Option | Default | Description |
@@ -126,6 +128,8 @@ set -g @ai-jump-pattern "claude|opencode"     # or e.g. "vite|jest --watch|psql"
 | `@sessionizer-popup-width` / `@sessionizer-popup-height` | `85%` | Size of the picker's popup (only applies in popup mode). |
 | `@ai-jump-key` | `Tab` | Key that runs the pane picker, always on tmux's own `prefix` (never a root key, never in the `sessions` table). |
 | `@ai-jump-pattern` | `claude\|opencode` | `egrep` pattern matched against running processes. Not limited to AI CLIs, e.g. `"vite\|jest --watch\|psql"` works to jump to dev servers, test watchers, or DB clients. |
+| `@ai-jump-state-option` | *(empty)* | Name of a window or pane `@option` holding each pane's state, e.g. `@agent_state` set from Claude Code hooks (`tmux set -w -t "$TMUX_PANE" @agent_state waiting`). When set, rows are colored and sorted by that state. Empty disables both. |
+| `@ai-jump-state-colors` | `waiting=1,done=2,working=3` | `state=color` pairs, color being an ANSI 0-255 index so it follows your terminal's palette. List order is sort priority; panes with an unlisted or no state go after them, and the pane you came from still goes last. |
 
 Marks aren't a tmux `@option`: they're a plain text file at
 `$XDG_CONFIG_HOME/tmux-giant-steps/marks.conf` (defaults to
