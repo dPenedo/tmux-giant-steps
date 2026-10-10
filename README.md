@@ -112,7 +112,8 @@ that repo. You can search by branch name too.
   checkout's branch, a separate `y/N` offers to delete it (`git branch -d`);
   an unmerged branch is always kept. The main checkout is never touched.
 - `prefix f w` opens the same kind of picker limited to the worktrees of the
-  repo you're in, with the current one last.
+  repo you're in, with the current one last. `Ctrl-t` and `Ctrl-Alt-d` work
+  there too.
 
 `ai-jump` shows each pane's repo and branch too, so agents running side by
 side in worktrees of one repo can be told apart.

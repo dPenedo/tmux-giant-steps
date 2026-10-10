@@ -480,7 +480,8 @@ pick_worktrees() {
     --preview "sh '$self' --fzf-preview {1}" \
     --preview-window 'right:60%' \
     --bind "ctrl-t:become(sh '$self' --new-worktree {1})" \
-    --header "Worktrees of ${main##*/} · Return to go · Ctrl-t new worktree") || return 0
+    --bind "ctrl-alt-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list-worktrees '$from')" \
+    --header "Worktrees of ${main##*/} · Return to go · Ctrl-t new worktree · Ctrl-Alt-d remove worktree") || return 0
   [ -z "$selected" ] && return 0
   switch_session "$(strip_marker "$(printf '%s' "$selected" | cut -f1)")"
 }
