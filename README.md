@@ -11,7 +11,7 @@ and a "jump to the pane running X" picker, great for AI CLI tools thanks to its 
    live preview of each session's panes and a kill-session mode (`Ctrl-x`).
    It knows about git worktrees: it shows each checkout's branch, lists
    worktrees right after their repo, and can add (`Ctrl-t`) or remove
-   (`Ctrl-d`) them.
+   (`Ctrl-Alt-d`) them.
 2. **Harpoon-like marks**: pin up to 4 directories/sessions to a number for
    instant jumps, and edit the list as plain text with Neovim.
 3. **ai-jump**: fuzzy-jump to any pane running a given process, matched by an
@@ -102,10 +102,15 @@ that repo. You can search by branch name too.
   `<repo>-<last segment of the branch>` (`feat/login` → `myrepo-login`; the
   prompt lets you change it), then jumps to it. An existing branch, local or
   on a remote, is checked out; any other name is created from the main
-  checkout's `HEAD`.
-- `Ctrl-d` on a linked worktree removes it after a `y/N`, and kills its
-  session. It never forces: with uncommitted changes git refuses and you see
-  why. The branch is kept, and the main checkout is never touched.
+  checkout's `HEAD`. Ignored files it needs (`.env`, `node_modules`...) can
+  come along from the main checkout, see `@sessionizer-worktree-copy` and
+  `@sessionizer-worktree-symlink`.
+- `Ctrl-Alt-d` on a linked worktree removes it and kills its session. It's
+  awkward on purpose: you confirm by typing the worktree's directory name,
+  and nothing is ever forced, so with uncommitted changes git refuses and you
+  see why. Then, only if its branch is already merged into the main
+  checkout's branch, a separate `y/N` offers to delete it (`git branch -d`);
+  an unmerged branch is always kept. The main checkout is never touched.
 - `prefix f w` opens the same kind of picker limited to the worktrees of the
   repo you're in, with the current one last.
 
@@ -126,6 +131,8 @@ set -g @sessionizer-find-key "f"
 set -g @sessionizer-edit-key "e"
 set -g @sessionizer-add-key "a"
 set -g @sessionizer-worktrees-key "w"
+set -g @sessionizer-worktree-copy ""          # e.g. ".env,.claude/settings.local.json"
+set -g @sessionizer-worktree-symlink ""       # e.g. "node_modules"
 set -g @sessionizer-mark1-key "j"
 set -g @sessionizer-mark2-key "k"
 set -g @sessionizer-mark3-key "l"
@@ -151,6 +158,8 @@ set -g @ai-jump-state-colors "waiting=1,done=2,working=3"
 | `@sessionizer-edit-key` | `e` | Edits `marks.conf` in Neovim. |
 | `@sessionizer-add-key` | `a` | Adds the current pane's directory as a new mark. |
 | `@sessionizer-worktrees-key` | `w` | Opens the picker over the worktrees of the current pane's repo. |
+| `@sessionizer-worktree-copy` | *(empty)* | Comma-separated paths, relative to the repo root, copied from the main checkout into each new worktree (`Ctrl-t`). Missing ones are skipped and nothing already in the worktree is overwritten. |
+| `@sessionizer-worktree-symlink` | *(empty)* | Same, but symlinked to the main checkout's copy instead, for big shared things like `node_modules`. |
 | `@sessionizer-mark1-key` … `@sessionizer-mark4-key` | `j` `k` `l` `\;` | Jump straight to mark *N*. Note `;` must be escaped as `\;`, tmux's own command separator. |
 | `@sessionizer-popup-mode` | `auto` | `on` always uses `display-popup`, `off` always opens a new window, `auto` picks based on the installed tmux version. |
 | `@sessionizer-popup-width` / `@sessionizer-popup-height` | `85%` | Size of the picker's popup (only applies in popup mode). |

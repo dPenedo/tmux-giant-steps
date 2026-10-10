@@ -228,29 +228,60 @@ test_new_worktree_with_empty_branch_does_nothing() {
 test_remove_worktree_removes_clean_one_and_kills_its_session() {
 	wt_repo_setup
 	tmux new-session -d -s repo-x -c "$TEST_TMPDIR/repos/repo-x"
-	printf 'y\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "  $TEST_TMPDIR/repos/repo-x" >/dev/null
+	printf 'repo-x\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "  $TEST_TMPDIR/repos/repo-x" >/dev/null
 	[ -e "$TEST_TMPDIR/repos/repo-x" ] && fail "repo-x should be gone"
 	tmux has-session -t "=repo-x" 2>/dev/null && fail "the repo-x session should be dead"
-	git -C "$TEST_TMPDIR/repos/repo" show-ref --verify --quiet refs/heads/feat/x || fail "the branch should be kept"
+	git -C "$TEST_TMPDIR/repos/repo" show-ref --verify --quiet refs/heads/feat/x || fail "the branch is kept unless you say y"
+}
+
+test_remove_worktree_needs_its_name_typed_back() {
+	wt_repo_setup
+	printf 'y\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null
+	[ -d "$TEST_TMPDIR/repos/repo-x" ] || fail "a y/yes must not be enough"
 }
 
 test_remove_worktree_refuses_with_uncommitted_changes() {
 	wt_repo_setup
 	: >"$TEST_TMPDIR/repos/repo-x/sucio.txt"
-	printf 'y\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null 2>&1
+	printf 'repo-x\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null 2>&1
 	[ -f "$TEST_TMPDIR/repos/repo-x/sucio.txt" ] || fail "a dirty worktree must not be removed"
-}
-
-test_remove_worktree_needs_a_yes() {
-	wt_repo_setup
-	printf '\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null
-	[ -d "$TEST_TMPDIR/repos/repo-x" ] || fail "should not remove without confirmation"
 }
 
 test_remove_worktree_ignores_the_main_checkout() {
 	wt_repo_setup
-	printf 'y\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo" >/dev/null
+	printf 'repo\ny\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo" >/dev/null
 	[ -d "$TEST_TMPDIR/repos/repo/.git" ] || fail "the main checkout must never be removed"
+}
+
+test_remove_worktree_deletes_a_merged_branch_on_yes() {
+	wt_repo_setup
+	printf 'repo-x\ny\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null
+	git -C "$TEST_TMPDIR/repos/repo" show-ref --verify --quiet refs/heads/feat/x && fail "merged feat/x should be deleted after y"
+	return 0
+}
+
+test_remove_worktree_never_deletes_an_unmerged_branch() {
+	wt_repo_setup
+	git -C "$TEST_TMPDIR/repos/repo-x" commit -q --allow-empty -m "solo en feat/x"
+	printf 'repo-x\ny\ny\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null
+	[ -e "$TEST_TMPDIR/repos/repo-x" ] && fail "the (clean) worktree should be gone"
+	git -C "$TEST_TMPDIR/repos/repo" show-ref --verify --quiet refs/heads/feat/x || fail "unmerged feat/x must be kept"
+}
+
+test_new_worktree_copies_and_symlinks_ignored_files() {
+	wt_repo_setup
+	printf 'SECRET=1\n' >"$TEST_TMPDIR/repos/repo/.env"
+	mkdir -p "$TEST_TMPDIR/repos/repo/node_modules/pkg"
+	tmux set-option -g @sessionizer-worktree-copy ".env,no-existe"
+	tmux set-option -g @sessionizer-worktree-symlink "node_modules/"
+	printf 'feat/semilla\n\n' | sh "$SCRIPTS/sessionizer" --new-worktree "$TEST_TMPDIR/repos/repo" >/dev/null || true
+	wt="$TEST_TMPDIR/repos/repo-semilla"
+	assert_eq "SECRET=1" "$(cat "$wt/.env")"
+	[ -L "$wt/.env" ] && fail ".env should be a copy, not a link"
+	[ -L "$wt/node_modules" ] || fail "node_modules should be a symlink"
+	assert_eq "$TEST_TMPDIR/repos/repo/node_modules" "$(readlink "$wt/node_modules")"
+	[ -e "$wt/no-existe" ] && fail "missing sources are skipped"
+	return 0
 }
 
 test_list_worktrees_marks_the_current_one_last() {

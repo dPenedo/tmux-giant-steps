@@ -4,7 +4,7 @@
 #
 #   Usage:
 #     sessionizer                 fuzzy picker (fzf), Ctrl-x kills a session,
-#                                 Ctrl-t adds a git worktree, Ctrl-d removes one
+#                                 Ctrl-t adds a git worktree, Ctrl-Alt-d removes one
 #     sessionizer <path|name>     create/attach directly
 #     sessionizer --mark N        jump to mark N in marks.conf
 #     sessionizer --add <path>    add <path> as a new mark
@@ -13,7 +13,7 @@
 #                                 picker over the worktrees of path's repo
 #                                 (defaults to the current pane's directory)
 #     sessionizer --new-worktree <item>     Ctrl-t: add a worktree, jump to it
-#     sessionizer --remove-worktree <item>  Ctrl-d: remove a linked worktree
+#     sessionizer --remove-worktree <item>  Ctrl-Alt-d: remove a linked worktree
 #     sessionizer --list          internal: fzf source/reload
 #     sessionizer --list-worktrees <path>   internal: --worktrees source
 #     sessionizer --fzf-preview   internal: fzf preview callback
@@ -28,6 +28,11 @@ SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SEARCH_PATH=$(tmux_option "@sessionizer-search-path" "~/repos")
 EXTRA_PATH=$(tmux_option "@sessionizer-extra-path" "")
 MAX_DEPTH=$(tmux_option "@sessionizer-max-depth" "1")
+# Paths, relative to the repo root, that a new worktree gets from the main
+# checkout: things git doesn't carry over because they're ignored (.env,
+# node_modules...). Comma-separated.
+WORKTREE_COPY=$(tmux_option "@sessionizer-worktree-copy" "")
+WORKTREE_SYMLINK=$(tmux_option "@sessionizer-worktree-symlink" "")
 
 usage() {
   sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
@@ -317,12 +322,52 @@ new_worktree() {
     pause
     return 0
   fi
+  seed_worktree "$main" "$wt"
   switch_session "$wt"
 }
 
-# Ctrl-d: removes a linked worktree after a y/N. Never --force, so git itself
-# refuses when there are uncommitted changes; the branch is kept. The
-# worktree's session goes too, unless it's the one you're in.
+# seed_worktree <main> <worktree>: copies @sessionizer-worktree-copy and
+# symlinks @sessionizer-worktree-symlink from the main checkout. Missing
+# sources are skipped, and so is anything the worktree already has (a
+# tracked file): it never overwrites.
+seed_worktree() {
+  old_ifs=$IFS
+  IFS=','
+  for rel in $WORKTREE_COPY; do
+    IFS=$old_ifs
+    seed_one copy "$1" "$2" "$rel"
+    IFS=','
+  done
+  for rel in $WORKTREE_SYMLINK; do
+    IFS=$old_ifs
+    seed_one link "$1" "$2" "$rel"
+    IFS=','
+  done
+  IFS=$old_ifs
+}
+
+seed_one() {
+  rel=${4#./}
+  rel=${rel%/}
+  [ -z "$rel" ] && return 0
+  src="$2/$rel"
+  dst="$3/$rel"
+  [ -e "$src" ] || return 0
+  if [ -e "$dst" ] || [ -L "$dst" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname -- "$dst")"
+  if [ "$1" = copy ]; then
+    cp -R "$src" "$dst"
+  else
+    ln -s "$src" "$dst"
+  fi
+}
+
+# Ctrl-Alt-d: removes a linked worktree, then offers to delete its branch.
+# Deliberately awkward: an out-of-the-way key, the worktree's directory name
+# typed back to confirm, and no --force anywhere, so git itself refuses a
+# worktree with uncommitted changes and a branch that isn't merged.
 remove_worktree() {
   dir=$(item_dir "$1")
   if ! worktree_read "$dir" || [ "$wt_kind" != linked ]; then
@@ -330,26 +375,57 @@ remove_worktree() {
     pause
     return 0
   fi
-  printf 'Remove worktree %s %s? The branch is kept. [y/N] ' "$dir" "$wt_label"
+  main=$wt_main
+  branch=$wt_branch
+  name=${dir##*/}
+
+  printf 'Worktree %s %s\n' "$dir" "$wt_label"
+  changes=$(git -C "$dir" status -s 2>/dev/null || true)
+  [ -n "$changes" ] && printf '\nUncommitted changes (git will refuse to remove it):\n%s\n' "$changes"
+  printf '\nType "%s" to remove it: ' "$name"
   read -r answer || answer=""
-  case "$answer" in
-  y | Y | yes) ;;
-  *) return 0 ;;
-  esac
-  if ! git -C "$wt_main" worktree remove "$dir"; then
+  if [ "$answer" != "$name" ]; then
+    printf 'Not removed.\n'
     pause
     return 0
   fi
-  name=$(basename "$dir" | tr . _)
-  has_session "$name" || return 0
-  [ "$(tmux display-message -p -t "=$name:" '#{session_path}')" = "$dir" ] || return 0
+  if ! git -C "$main" worktree remove "$dir"; then
+    pause
+    return 0
+  fi
+
+  offer_branch_delete "$main" "$branch"
+
+  session=$(printf '%s' "$name" | tr . _)
+  has_session "$session" || return 0
+  [ "$(tmux display-message -p -t "=$session:" '#{session_path}')" = "$dir" ] || return 0
   current=""
   [ -n "${TMUX:-}" ] && current=$(tmux display-message -p '#S' 2>/dev/null || true)
-  if [ "$name" = "$current" ]; then
-    tmux display-message "Worktree removed; session '$name' left open, you're in it"
+  if [ "$session" = "$current" ]; then
+    tmux display-message "Worktree removed; session '$session' left open, you're in it"
   else
-    tmux kill-session -t "=$name"
+    tmux kill-session -t "=$session"
   fi
+}
+
+# offer_branch_delete <main> <branch>: asks (y/N) to delete <branch>, but only
+# once it's merged into the branch the main checkout is on; `git branch -d`
+# would refuse otherwise anyway. An unmerged branch is kept and said so.
+offer_branch_delete() {
+  [ "$2" = detached ] && return 0
+  worktree_read "$1" || return 0
+  into=$wt_branch
+  if ! git -C "$1" merge-base --is-ancestor "refs/heads/$2" HEAD 2>/dev/null; then
+    printf 'Branch %s is not merged into %s: kept.\n' "$2" "$into"
+    pause
+    return 0
+  fi
+  printf 'Branch %s is merged into %s. Delete it too? [y/N] ' "$2" "$into"
+  read -r answer || answer=""
+  case "$answer" in
+  y | Y | yes) git -C "$1" branch -d "$2" || pause ;;
+  esac
+  return 0
 }
 
 # Every worktree of the repo <path> is in, the one <path> is in marked and
@@ -473,8 +549,8 @@ selected=$(sh "$self" --list | fzf \
   --preview-window 'right:60%' \
   --bind "ctrl-x:execute-silent(sh '$self' --kill {1})+reload(sh '$self' --list)" \
   --bind "ctrl-t:become(sh '$self' --new-worktree {1})" \
-  --bind "ctrl-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list)" \
-  --header 'Return go · Ctrl-x kill session · Ctrl-t new worktree · Ctrl-d remove worktree') || exit 0
+  --bind "ctrl-alt-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list)" \
+  --header 'Return go · Ctrl-x kill session · Ctrl-t new worktree · Ctrl-Alt-d remove worktree') || exit 0
 
 [ -z "$selected" ] && exit 0
 selected=$(strip_marker "$(printf '%s' "$selected" | cut -f1)")
