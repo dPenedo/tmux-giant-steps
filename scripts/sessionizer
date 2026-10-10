@@ -35,39 +35,39 @@ WORKTREE_COPY=$(tmux_option "@sessionizer-worktree-copy" "")
 WORKTREE_SYMLINK=$(tmux_option "@sessionizer-worktree-symlink" "")
 
 usage() {
-  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 switch_to() {
-  if [ -n "${TMUX:-}" ]; then
-    tmux switch-client -t "$1"
-  else
-    tmux attach-session -t "$1"
-  fi
+	if [ -n "${TMUX:-}" ]; then
+		tmux switch-client -t "$1"
+	else
+		tmux attach-session -t "$1"
+	fi
 }
 
 has_session() {
-  tmux has-session -t "=$1" 2>/dev/null
+	tmux has-session -t "=$1" 2>/dev/null
 }
 
 hydrate() {
-  session="$1"
-  path="$2"
-  if [ -f "$path/.tmux-sessionizer" ]; then
-    tmux send-keys -t "$session" "source $path/.tmux-sessionizer" C-m
-  elif [ -f "$HOME/.tmux-sessionizer" ]; then
-    tmux send-keys -t "$session" "source $HOME/.tmux-sessionizer" C-m
-  fi
+	session="$1"
+	path="$2"
+	if [ -f "$path/.tmux-sessionizer" ]; then
+		tmux send-keys -t "$session" "source $path/.tmux-sessionizer" C-m
+	elif [ -f "$HOME/.tmux-sessionizer" ]; then
+		tmux send-keys -t "$session" "source $HOME/.tmux-sessionizer" C-m
+	fi
 }
 
 switch_session() {
-  path=$(expand_home "$1")
-  name=$(basename "$path" | tr . _)
-  if ! has_session "$name"; then
-    tmux new-session -ds "$name" -c "$path"
-    hydrate "$name" "$path"
-  fi
-  switch_to "$name"
+	path=$(expand_home "$1")
+	name=$(basename "$path" | tr . _)
+	if ! has_session "$name"; then
+		tmux new-session -ds "$name" -c "$path"
+		hydrate "$name" "$path"
+	fi
+	switch_to "$name"
 }
 
 # Every line the picker shows carries a 2-char marker column: "* " for the
@@ -79,11 +79,11 @@ MARK_HERE='* '
 MARK_NONE='  '
 
 strip_marker() {
-  case "$1" in
-  "$MARK_HERE"*) printf '%s' "${1#"$MARK_HERE"}" ;;
-  "$MARK_NONE"*) printf '%s' "${1#"$MARK_NONE"}" ;;
-  *) printf '%s' "$1" ;;
-  esac
+	case "$1" in
+	"$MARK_HERE"*) printf '%s' "${1#"$MARK_HERE"}" ;;
+	"$MARK_NONE"*) printf '%s' "${1#"$MARK_NONE"}" ;;
+	*) printf '%s' "$1" ;;
+	esac
 }
 
 # Fields are tab-separated: the item itself (marker + session or path), then
@@ -91,48 +91,48 @@ strip_marker() {
 # be seen and searched. Everything that acts on a line takes field 1, so the
 # label never reaches it.
 list_items() {
-  list_sessions
-  list_paths | label_paths
+	list_sessions
+	list_paths | label_paths
 }
 
 # Dim, so it reads as an annotation next to the item.
 label_field() {
-  [ -n "$1" ] && printf '\t\033[2m%s\033[0m' "$1"
-  return 0
+	[ -n "$1" ] && printf '\t\033[2m%s\033[0m' "$1"
+	return 0
 }
 
 # Sessions, with the current one marked and pushed to the bottom of the
 # block: it's the one you're least likely to want, but hiding it outright
 # (as this did before) also hides its preview.
 list_sessions() {
-  if [ -n "${TMUX:-}" ]; then
-    current=$(tmux display-message -p '#S' 2>/dev/null || true)
-  else
-    current=""
-  fi
-  tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null |
-    awk -F'\t' -v cur="$current" -v here="$MARK_HERE" -v none="$MARK_NONE" '
+	if [ -n "${TMUX:-}" ]; then
+		current=$(tmux display-message -p '#S' 2>/dev/null || true)
+	else
+		current=""
+	fi
+	tmux list-sessions -F '#{session_name}	#{session_path}' 2>/dev/null |
+		awk -F'\t' -v cur="$current" -v here="$MARK_HERE" -v none="$MARK_NONE" '
       $1 == cur { found = $0; next }
       { printf "%s[TMUX] %s\n", none, $0 }
       END { if (found != "") printf "%s[TMUX] %s\n", here, found }' |
-    while IFS='	' read -r item path; do
-      label=""
-      worktree_read "$path" && label=$wt_label
-      printf '%s%s\n' "$item" "$(label_field "$label")"
-    done || true
+		while IFS='	' read -r item path; do
+			label=""
+			worktree_read "$path" && label=$wt_label
+			printf '%s%s\n' "$item" "$(label_field "$label")"
+		done || true
 }
 
 # Adds the marker column and the git label to list_paths' output, and moves
 # each linked worktree up to sit right after its main checkout (when that is
 # listed too), so a repo and its worktrees read as one block.
 label_paths() {
-  while IFS= read -r path; do
-    if worktree_read "$path"; then
-      printf '%s\t%s\t%s\t%s\n' "$path" "$wt_kind" "$wt_main" "$wt_label"
-    else
-      printf '%s\t\t\t\n' "$path"
-    fi
-  done | awk -F'\t' -v none="$MARK_NONE" '
+	while IFS= read -r path; do
+		if worktree_read "$path"; then
+			printf '%s\t%s\t%s\t%s\n' "$path" "$wt_kind" "$wt_main" "$wt_label"
+		else
+			printf '%s\t\t\t\n' "$path"
+		fi
+	done | awk -F'\t' -v none="$MARK_NONE" '
     function emit(i) {
       if (label[i] == "") printf "%s%s\n", none, path[i]
       else printf "%s%s\t\033[2m%s\033[0m\n", none, path[i], label[i]
@@ -156,111 +156,111 @@ label_paths() {
 }
 
 list_paths() {
-  old_ifs=$IFS
-  IFS=','
-  for entry in $SEARCH_PATH; do
-    IFS=$old_ifs
-    case "$entry" in
-    *:*)
-      path=${entry%:*}
-      depth=${entry##*:}
-      ;;
-    *)
-      path=$entry
-      depth=$MAX_DEPTH
-      ;;
-    esac
-    path=$(expand_home "$path")
-    [ -d "$path" ] && find "$path" -mindepth 1 -maxdepth "$depth" -name .git -prune -o -type d -print
-    IFS=','
-  done
-  IFS=$old_ifs
+	old_ifs=$IFS
+	IFS=','
+	for entry in $SEARCH_PATH; do
+		IFS=$old_ifs
+		case "$entry" in
+		*:*)
+			path=${entry%:*}
+			depth=${entry##*:}
+			;;
+		*)
+			path=$entry
+			depth=$MAX_DEPTH
+			;;
+		esac
+		path=$(expand_home "$path")
+		[ -d "$path" ] && find "$path" -mindepth 1 -maxdepth "$depth" -name .git -prune -o -type d -print
+		IFS=','
+	done
+	IFS=$old_ifs
 
-  IFS=','
-  for entry in $EXTRA_PATH; do
-    IFS=$old_ifs
-    [ -z "$entry" ] && continue
-    path=$(expand_home "$entry")
-    [ -d "$path" ] && printf '%s\n' "$path"
-    IFS=','
-  done
-  IFS=$old_ifs
+	IFS=','
+	for entry in $EXTRA_PATH; do
+		IFS=$old_ifs
+		[ -z "$entry" ] && continue
+		path=$(expand_home "$entry")
+		[ -d "$path" ] && printf '%s\n' "$path"
+		IFS=','
+	done
+	IFS=$old_ifs
 }
 
 strip_trailing_blank() {
-  awk '{a[NR] = $0; if ($0 != "") last = NR} END {for (i = 1; i <= last; i++) print a[i]}'
+	awk '{a[NR] = $0; if ($0 != "") last = NR} END {for (i = 1; i <= last; i++) print a[i]}'
 }
 
 fzf_preview() {
-  item=$(strip_marker "$1")
-  case "$item" in
-  "[TMUX] "*)
-    session=${item#"[TMUX] "}
-    windows=$(tmux list-windows -t "$session" -F '#{window_index}:#{window_name}' 2>/dev/null) || return 0
-    [ -z "$windows" ] && return 0
-    count=$(printf '%s\n' "$windows" | wc -l)
-    term_lines=${FZF_PREVIEW_LINES:-$(tput lines 2>/dev/null || echo 24)}
-    lines_each=$(((term_lines - count * 2) / count))
-    [ "$lines_each" -lt 5 ] && lines_each=5
-    printf '%s\n' "$windows" | while IFS=: read -r idx wname; do
-      printf '\033[1;34m\342\224\200\342\224\200 %s \342\224\200\342\224\200\033[0m\n' "$wname"
-      pane=$(tmux list-panes -t "$session:$idx" -F '#{pane_id}' 2>/dev/null | head -1)
-      [ -n "$pane" ] && render_pane "$pane" 200 | strip_trailing_blank | tail -n "$lines_each"
-      echo
-    done
-    ;;
-  *)
-    if worktree_read "$item"; then
-      printf '\033[1;34m\342\224\200\342\224\200 %s \342\224\200\342\224\200\033[0m\n' "$wt_label"
-      git -C "$item" log --oneline --decorate --color=always -n 10 2>/dev/null || true
-      changes=$(git -C "$item" -c color.status=always status -s 2>/dev/null || true)
-      [ -n "$changes" ] && printf '\n%s\n' "$changes"
-      echo
-    fi
-    ls "$item" 2>/dev/null
-    ;;
-  esac
+	item=$(strip_marker "$1")
+	case "$item" in
+	"[TMUX] "*)
+		session=${item#"[TMUX] "}
+		windows=$(tmux list-windows -t "$session" -F '#{window_index}:#{window_name}' 2>/dev/null) || return 0
+		[ -z "$windows" ] && return 0
+		count=$(printf '%s\n' "$windows" | wc -l)
+		term_lines=${FZF_PREVIEW_LINES:-$(tput lines 2>/dev/null || echo 24)}
+		lines_each=$(((term_lines - count * 2) / count))
+		[ "$lines_each" -lt 5 ] && lines_each=5
+		printf '%s\n' "$windows" | while IFS=: read -r idx wname; do
+			printf '\033[1;34m\342\224\200\342\224\200 %s \342\224\200\342\224\200\033[0m\n' "$wname"
+			pane=$(tmux list-panes -t "$session:$idx" -F '#{pane_id}' 2>/dev/null | head -1)
+			[ -n "$pane" ] && render_pane "$pane" 200 | strip_trailing_blank | tail -n "$lines_each"
+			echo
+		done
+		;;
+	*)
+		if worktree_read "$item"; then
+			printf '\033[1;34m\342\224\200\342\224\200 %s \342\224\200\342\224\200\033[0m\n' "$wt_label"
+			git -C "$item" log --oneline --decorate --color=always -n 10 2>/dev/null || true
+			changes=$(git -C "$item" -c color.status=always status -s 2>/dev/null || true)
+			[ -n "$changes" ] && printf '\n%s\n' "$changes"
+			echo
+		fi
+		ls "$item" 2>/dev/null
+		;;
+	esac
 }
 
 kill_item() {
-  item=$(strip_marker "$1")
-  case "$item" in
-  "[TMUX] "*) tmux kill-session -t "${item#"[TMUX] "}" 2>/dev/null || true ;;
-  esac
+	item=$(strip_marker "$1")
+	case "$item" in
+	"[TMUX] "*) tmux kill-session -t "${item#"[TMUX] "}" 2>/dev/null || true ;;
+	esac
 }
 
 jump_mark() {
-  ensure_config_dir
-  n="$1"
-  line=$(sed -n "${n}p" "$MARKS_FILE")
-  [ -z "$line" ] && return 0
+	ensure_config_dir
+	n="$1"
+	line=$(sed -n "${n}p" "$MARKS_FILE")
+	[ -z "$line" ] && return 0
 
-  path=$(expand_home "$line")
-  if [ ! -d "$path" ]; then
-    awk -v n="$n" 'NR != n' "$MARKS_FILE" >"$MARKS_FILE.tmp" && mv "$MARKS_FILE.tmp" "$MARKS_FILE"
-    tmux display-message "Mark $n ('$line') no longer exists, removed"
-    return 0
-  fi
+	path=$(expand_home "$line")
+	if [ ! -d "$path" ]; then
+		awk -v n="$n" 'NR != n' "$MARKS_FILE" >"$MARKS_FILE.tmp" && mv "$MARKS_FILE.tmp" "$MARKS_FILE"
+		tmux display-message "Mark $n ('$line') no longer exists, removed"
+		return 0
+	fi
 
-  switch_session "$line"
+	switch_session "$line"
 }
 
 add_mark() {
-  ensure_config_dir
-  printf '%s\n' "$1" >>"$MARKS_FILE"
-  tmux display-message "Added '$1' to marks.conf"
+	ensure_config_dir
+	printf '%s\n' "$1" >>"$MARKS_FILE"
+	tmux display-message "Added '$1' to marks.conf"
 }
 
 edit_marks() {
-  ensure_config_dir
-  mkdir -p "$CACHE_DIR"
-  rm -f "$PENDING_FILE"
-  nvim -c "nnoremap <buffer> <CR> :call writefile([getline('.')], '$PENDING_FILE')<Bar>q<CR>" "$MARKS_FILE"
-  if [ -f "$PENDING_FILE" ]; then
-    session_path=$(cat "$PENDING_FILE")
-    rm -f "$PENDING_FILE"
-    switch_session "$session_path"
-  fi
+	ensure_config_dir
+	mkdir -p "$CACHE_DIR"
+	rm -f "$PENDING_FILE"
+	nvim -c "nnoremap <buffer> <CR> :call writefile([getline('.')], '$PENDING_FILE')<Bar>q<CR>" "$MARKS_FILE"
+	if [ -f "$PENDING_FILE" ]; then
+		session_path=$(cat "$PENDING_FILE")
+		rm -f "$PENDING_FILE"
+		switch_session "$session_path"
+	fi
 }
 
 # Ctrl-t runs new_worktree through fzf's become, which inherits fzf's stdout:
@@ -269,24 +269,24 @@ edit_marks() {
 # input. Keyed on stdin, which become does hand over as the terminal: when
 # it's a pipe instead (tests feeding the answers) stdout is left alone.
 to_tty() {
-  if [ -t 0 ]; then
-    exec >/dev/tty
-  fi
+	if [ -t 0 ]; then
+		exec >/dev/tty
+	fi
 }
 
 pause() {
-  printf 'Press Enter to continue '
-  read -r _ || true
+	printf 'Press Enter to continue '
+	read -r _ || true
 }
 
 # The directory behind a picker item: a path as-is, a session by where it was
 # started.
 item_dir() {
-  item=$(strip_marker "$1")
-  case "$item" in
-  "[TMUX] "*) tmux display-message -p -t "=${item#"[TMUX] "}:" '#{session_path}' 2>/dev/null ;;
-  *) expand_home "$item" ;;
-  esac
+	item=$(strip_marker "$1")
+	case "$item" in
+	"[TMUX] "*) tmux display-message -p -t "=${item#"[TMUX] "}:" '#{session_path}' 2>/dev/null ;;
+	*) expand_home "$item" ;;
+	esac
 }
 
 # Ctrl-t (via fzf's become, so it owns the terminal): asks for a branch, adds
@@ -294,36 +294,36 @@ item_dir() {
 # branch (local, or a remote one git can track) is checked out; anything else
 # is created from the main checkout's HEAD.
 new_worktree() {
-  to_tty
-  dir=$(item_dir "$1")
-  if ! main=$(repo_main "$dir"); then
-    printf 'Not a git repository: %s\n' "$dir"
-    pause
-    return 0
-  fi
-  printf 'New worktree of %s\nBranch: ' "${main##*/}"
-  read -r branch || branch=""
-  [ -z "$branch" ] && return 0
-  default=$(worktree_dir_for_branch "$main" "$branch")
-  printf 'Directory [%s]: ' "$default"
-  read -r wt || wt=""
-  wt=$(expand_home "${wt:-$default}")
-  case "$wt" in
-  /*) ;;
-  *) wt="$(dirname -- "$main")/$wt" ;;
-  esac
-  if git -C "$main" show-ref --verify --quiet "refs/heads/$branch" ||
-    [ -n "$(git -C "$main" for-each-ref --format='%(refname)' "refs/remotes/*/$branch")" ]; then
-    set -- "$wt" "$branch"
-  else
-    set -- -b "$branch" "$wt"
-  fi
-  if ! git -C "$main" worktree add "$@"; then
-    pause
-    return 0
-  fi
-  seed_worktree "$main" "$wt"
-  switch_session "$wt"
+	to_tty
+	dir=$(item_dir "$1")
+	if ! main=$(repo_main "$dir"); then
+		printf 'Not a git repository: %s\n' "$dir"
+		pause
+		return 0
+	fi
+	printf 'New worktree of %s\nBranch: ' "${main##*/}"
+	read -r branch || branch=""
+	[ -z "$branch" ] && return 0
+	default=$(worktree_dir_for_branch "$main" "$branch")
+	printf 'Directory [%s]: ' "$default"
+	read -r wt || wt=""
+	wt=$(expand_home "${wt:-$default}")
+	case "$wt" in
+	/*) ;;
+	*) wt="$(dirname -- "$main")/$wt" ;;
+	esac
+	if git -C "$main" show-ref --verify --quiet "refs/heads/$branch" ||
+		[ -n "$(git -C "$main" for-each-ref --format='%(refname)' "refs/remotes/*/$branch")" ]; then
+		set -- "$wt" "$branch"
+	else
+		set -- -b "$branch" "$wt"
+	fi
+	if ! git -C "$main" worktree add "$@"; then
+		pause
+		return 0
+	fi
+	seed_worktree "$main" "$wt"
+	switch_session "$wt"
 }
 
 # seed_worktree <main> <worktree>: copies @sessionizer-worktree-copy and
@@ -331,37 +331,37 @@ new_worktree() {
 # sources are skipped, and so is anything the worktree already has (a
 # tracked file): it never overwrites.
 seed_worktree() {
-  old_ifs=$IFS
-  IFS=','
-  for rel in $WORKTREE_COPY; do
-    IFS=$old_ifs
-    seed_one copy "$1" "$2" "$rel"
-    IFS=','
-  done
-  for rel in $WORKTREE_SYMLINK; do
-    IFS=$old_ifs
-    seed_one link "$1" "$2" "$rel"
-    IFS=','
-  done
-  IFS=$old_ifs
+	old_ifs=$IFS
+	IFS=','
+	for rel in $WORKTREE_COPY; do
+		IFS=$old_ifs
+		seed_one copy "$1" "$2" "$rel"
+		IFS=','
+	done
+	for rel in $WORKTREE_SYMLINK; do
+		IFS=$old_ifs
+		seed_one link "$1" "$2" "$rel"
+		IFS=','
+	done
+	IFS=$old_ifs
 }
 
 seed_one() {
-  rel=${4#./}
-  rel=${rel%/}
-  [ -z "$rel" ] && return 0
-  src="$2/$rel"
-  dst="$3/$rel"
-  [ -e "$src" ] || return 0
-  if [ -e "$dst" ] || [ -L "$dst" ]; then
-    return 0
-  fi
-  mkdir -p "$(dirname -- "$dst")"
-  if [ "$1" = copy ]; then
-    cp -R "$src" "$dst"
-  else
-    ln -s "$src" "$dst"
-  fi
+	rel=${4#./}
+	rel=${rel%/}
+	[ -z "$rel" ] && return 0
+	src="$2/$rel"
+	dst="$3/$rel"
+	[ -e "$src" ] || return 0
+	if [ -e "$dst" ] || [ -L "$dst" ]; then
+		return 0
+	fi
+	mkdir -p "$(dirname -- "$dst")"
+	if [ "$1" = copy ]; then
+		cp -R "$src" "$dst"
+	else
+		ln -s "$src" "$dst"
+	fi
 }
 
 # Ctrl-Alt-d: removes a linked worktree, then offers to delete its branch.
@@ -369,188 +369,188 @@ seed_one() {
 # and no --force anywhere, so git itself refuses a worktree with uncommitted
 # changes and a branch that isn't merged.
 remove_worktree() {
-  dir=$(item_dir "$1")
-  if ! worktree_read "$dir" || [ "$wt_kind" != linked ]; then
-    printf 'Not a linked git worktree, nothing to remove: %s\n' "$dir"
-    pause
-    return 0
-  fi
-  main=$wt_main
-  branch=$wt_branch
-  name=${dir##*/}
+	dir=$(item_dir "$1")
+	if ! worktree_read "$dir" || [ "$wt_kind" != linked ]; then
+		printf 'Not a linked git worktree, nothing to remove: %s\n' "$dir"
+		pause
+		return 0
+	fi
+	main=$wt_main
+	branch=$wt_branch
+	name=${dir##*/}
 
-  printf 'Worktree %s %s\n' "$dir" "$wt_label"
-  changes=$(git -C "$dir" status -s 2>/dev/null || true)
-  [ -n "$changes" ] && printf '\nUncommitted changes (git will refuse to remove it):\n%s\n' "$changes"
-  printf '\nRemove this worktree? [y/N] '
-  read -r answer || answer=""
-  case "$answer" in
-  y | Y | yes) ;;
-  *) return 0 ;;
-  esac
-  if ! git -C "$main" worktree remove "$dir"; then
-    pause
-    return 0
-  fi
+	printf 'Worktree %s %s\n' "$dir" "$wt_label"
+	changes=$(git -C "$dir" status -s 2>/dev/null || true)
+	[ -n "$changes" ] && printf '\nUncommitted changes (git will refuse to remove it):\n%s\n' "$changes"
+	printf '\nRemove this worktree? [y/N] '
+	read -r answer || answer=""
+	case "$answer" in
+	y | Y | yes) ;;
+	*) return 0 ;;
+	esac
+	if ! git -C "$main" worktree remove "$dir"; then
+		pause
+		return 0
+	fi
 
-  offer_branch_delete "$main" "$branch"
+	offer_branch_delete "$main" "$branch"
 
-  session=$(printf '%s' "$name" | tr . _)
-  has_session "$session" || return 0
-  [ "$(tmux display-message -p -t "=$session:" '#{session_path}')" = "$dir" ] || return 0
-  current=""
-  [ -n "${TMUX:-}" ] && current=$(tmux display-message -p '#S' 2>/dev/null || true)
-  if [ "$session" = "$current" ]; then
-    tmux display-message "Worktree removed; session '$session' left open, you're in it"
-  else
-    tmux kill-session -t "=$session"
-  fi
+	session=$(printf '%s' "$name" | tr . _)
+	has_session "$session" || return 0
+	[ "$(tmux display-message -p -t "=$session:" '#{session_path}')" = "$dir" ] || return 0
+	current=""
+	[ -n "${TMUX:-}" ] && current=$(tmux display-message -p '#S' 2>/dev/null || true)
+	if [ "$session" = "$current" ]; then
+		tmux display-message "Worktree removed; session '$session' left open, you're in it"
+	else
+		tmux kill-session -t "=$session"
+	fi
 }
 
 # offer_branch_delete <main> <branch>: asks (y/N) to delete <branch>, but only
 # once it's merged into the branch the main checkout is on; `git branch -d`
 # would refuse otherwise anyway. An unmerged branch is kept and said so.
 offer_branch_delete() {
-  [ "$2" = detached ] && return 0
-  worktree_read "$1" || return 0
-  into=$wt_branch
-  if ! git -C "$1" merge-base --is-ancestor "refs/heads/$2" HEAD 2>/dev/null; then
-    printf 'Branch %s is not merged into %s: kept.\n' "$2" "$into"
-    pause
-    return 0
-  fi
-  printf 'Branch %s is merged into %s. Delete it too? [y/N] ' "$2" "$into"
-  read -r answer || answer=""
-  case "$answer" in
-  y | Y | yes) git -C "$1" branch -d "$2" || pause ;;
-  esac
-  return 0
+	[ "$2" = detached ] && return 0
+	worktree_read "$1" || return 0
+	into=$wt_branch
+	if ! git -C "$1" merge-base --is-ancestor "refs/heads/$2" HEAD 2>/dev/null; then
+		printf 'Branch %s is not merged into %s: kept.\n' "$2" "$into"
+		pause
+		return 0
+	fi
+	printf 'Branch %s is merged into %s. Delete it too? [y/N] ' "$2" "$into"
+	read -r answer || answer=""
+	case "$answer" in
+	y | Y | yes) git -C "$1" branch -d "$2" || pause ;;
+	esac
+	return 0
 }
 
 # Every worktree of the repo <path> is in, the one <path> is in marked and
 # last, same as the session you're in in the main picker.
 list_worktrees() {
-  main=$(repo_main "$1") || return 0
-  here=$(find_worktree_root "$1") || here=""
-  [ -n "$here" ] && here=$(CDPATH= cd -- "$here" && pwd -P)
-  git -C "$main" worktree list --porcelain | sed -n 's/^worktree //p' | {
-    last=""
-    while IFS= read -r wt; do
-      worktree_read "$wt" || continue # the bare repo, a pruned dir...
-      if [ "$wt" = "$here" ]; then
-        last="$MARK_HERE$wt$(label_field "$wt_label")"
-      else
-        printf '%s%s%s\n' "$MARK_NONE" "$wt" "$(label_field "$wt_label")"
-      fi
-    done
-    [ -n "$last" ] && printf '%s\n' "$last"
-    return 0
-  }
+	main=$(repo_main "$1") || return 0
+	here=$(find_worktree_root "$1") || here=""
+	[ -n "$here" ] && here=$(CDPATH= cd -- "$here" && pwd -P)
+	git -C "$main" worktree list --porcelain | sed -n 's/^worktree //p' | {
+		last=""
+		while IFS= read -r wt; do
+			worktree_read "$wt" || continue # the bare repo, a pruned dir...
+			if [ "$wt" = "$here" ]; then
+				last="$MARK_HERE$wt$(label_field "$wt_label")"
+			else
+				printf '%s%s%s\n' "$MARK_NONE" "$wt" "$(label_field "$wt_label")"
+			fi
+		done
+		[ -n "$last" ] && printf '%s\n' "$last"
+		return 0
+	}
 }
 
 require() {
-  for cmd in "$@"; do
-    command -v "$cmd" >/dev/null 2>&1 || {
-      echo "$cmd is not installed." >&2
-      exit 1
-    }
-  done
+	for cmd in "$@"; do
+		command -v "$cmd" >/dev/null 2>&1 || {
+			echo "$cmd is not installed." >&2
+			exit 1
+		}
+	done
 }
 
 self="$0"
 
 pick_worktrees() {
-  from=${1:-}
-  if [ -z "$from" ]; then
-    if [ -n "${TMUX:-}" ]; then
-      from=$(tmux display-message -p '#{pane_current_path}')
-    else
-      from=$PWD
-    fi
-  fi
-  if ! main=$(repo_main "$from"); then
-    tmux display-message "Not inside a git repository: $from"
-    return 0
-  fi
-  require tmux fzf git
-  selected=$(sh "$self" --list-worktrees "$from" | fzf \
-    --height=100% \
-    --ansi \
-    --delimiter='\t' \
-    --preview "sh '$self' --fzf-preview {1}" \
-    --preview-window 'right:60%' \
-    --bind "ctrl-t:become(sh '$self' --new-worktree {1})" \
-    --bind "ctrl-alt-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list-worktrees '$from')" \
-    --header "Worktrees of ${main##*/} · Return to go · Ctrl-t new worktree · Ctrl-Alt-d remove worktree") || return 0
-  [ -z "$selected" ] && return 0
-  switch_session "$(strip_marker "$(printf '%s' "$selected" | cut -f1)")"
+	from=${1:-}
+	if [ -z "$from" ]; then
+		if [ -n "${TMUX:-}" ]; then
+			from=$(tmux display-message -p '#{pane_current_path}')
+		else
+			from=$PWD
+		fi
+	fi
+	if ! main=$(repo_main "$from"); then
+		tmux display-message "Not inside a git repository: $from"
+		return 0
+	fi
+	require tmux fzf git
+	selected=$(sh "$self" --list-worktrees "$from" | fzf \
+		--height=100% \
+		--ansi \
+		--delimiter='\t' \
+		--preview "sh '$self' --fzf-preview {1}" \
+		--preview-window 'right:60%' \
+		--bind "ctrl-t:become(sh '$self' --new-worktree {1})" \
+		--bind "ctrl-alt-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list-worktrees '$from')" \
+		--header "Worktrees of ${main##*/} · Return to go · Ctrl-t new worktree · Ctrl-Alt-d remove worktree") || return 0
+	[ -z "$selected" ] && return 0
+	switch_session "$(strip_marker "$(printf '%s' "$selected" | cut -f1)")"
 }
 
 case "${1:-}" in
 -h | --help)
-  usage
-  exit 0
-  ;;
+	usage
+	exit 0
+	;;
 --list)
-  list_items
-  exit 0
-  ;;
+	list_items
+	exit 0
+	;;
 --fzf-preview)
-  fzf_preview "$2"
-  exit 0
-  ;;
+	fzf_preview "$2"
+	exit 0
+	;;
 --kill)
-  kill_item "$2"
-  exit 0
-  ;;
+	kill_item "$2"
+	exit 0
+	;;
 --mark)
-  jump_mark "$2"
-  exit 0
-  ;;
+	jump_mark "$2"
+	exit 0
+	;;
 --add)
-  add_mark "$2"
-  exit 0
-  ;;
+	add_mark "$2"
+	exit 0
+	;;
 --edit)
-  edit_marks
-  exit 0
-  ;;
+	edit_marks
+	exit 0
+	;;
 --worktrees)
-  pick_worktrees "${2:-}"
-  exit 0
-  ;;
+	pick_worktrees "${2:-}"
+	exit 0
+	;;
 --list-worktrees)
-  list_worktrees "$2"
-  exit 0
-  ;;
+	list_worktrees "$2"
+	exit 0
+	;;
 --new-worktree)
-  new_worktree "$2"
-  exit 0
-  ;;
+	new_worktree "$2"
+	exit 0
+	;;
 --remove-worktree)
-  remove_worktree "$2"
-  exit 0
-  ;;
+	remove_worktree "$2"
+	exit 0
+	;;
 "")
-  ;;
+	;;
 *)
-  switch_session "$1"
-  exit 0
-  ;;
+	switch_session "$1"
+	exit 0
+	;;
 esac
 
 require tmux fzf
 
 selected=$(sh "$self" --list | fzf \
-  --height=100% \
-  --ansi \
-  --delimiter='\t' \
-  --preview "sh '$self' --fzf-preview {1}" \
-  --preview-window 'right:60%' \
-  --bind "ctrl-x:execute-silent(sh '$self' --kill {1})+reload(sh '$self' --list)" \
-  --bind "ctrl-t:become(sh '$self' --new-worktree {1})" \
-  --bind "ctrl-alt-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list)" \
-  --header 'Return go · Ctrl-x kill session · Ctrl-t new worktree · Ctrl-Alt-d remove worktree') || exit 0
+	--height=100% \
+	--ansi \
+	--delimiter='\t' \
+	--preview "sh '$self' --fzf-preview {1}" \
+	--preview-window 'right:60%' \
+	--bind "ctrl-x:execute-silent(sh '$self' --kill {1})+reload(sh '$self' --list)" \
+	--bind "ctrl-t:become(sh '$self' --new-worktree {1})" \
+	--bind "ctrl-alt-d:execute(sh '$self' --remove-worktree {1})+reload(sh '$self' --list)" \
+	--header 'Return go · Ctrl-x kill session · Ctrl-t new worktree · Ctrl-Alt-d remove worktree') || exit 0
 
 [ -z "$selected" ] && exit 0
 selected=$(strip_marker "$(printf '%s' "$selected" | cut -f1)")

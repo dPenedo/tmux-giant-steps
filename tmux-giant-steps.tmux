@@ -8,13 +8,13 @@ CURRENT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$CURRENT_DIR/scripts"
 
 tmux_option() {
-  local val
-  val=$(tmux show-option -gqv "$1" 2>/dev/null)
-  [ -n "$val" ] || val="$2"
-  # tmux stores "\;" in an @option as a bare ";", and a bare ";" in a
-  # bind-key argument is its own command separator, so hand it back escaped.
-  [ "$val" = ";" ] && val='\;'
-  printf '%s\n' "$val"
+	local val
+	val=$(tmux show-option -gqv "$1" 2>/dev/null)
+	[ -n "$val" ] || val="$2"
+	# tmux stores "\;" in an @option as a bare ";", and a bare ";" in a
+	# bind-key argument is its own command separator, so hand it back escaped.
+	[ "$val" = ";" ] && val='\;'
+	printf '%s\n' "$val"
 }
 
 # Not via tmux_option: an @option set to "" reads back exactly like an unset
@@ -22,9 +22,9 @@ tmux_option() {
 # you ask for flat binds with no key-table at all. `show-options -g <name>`
 # does tell the two apart (it fails outright when the option was never set).
 if tmux show-options -g @sessionizer-prefix-key >/dev/null 2>&1; then
-  prefix_key=$(tmux show-option -gqv @sessionizer-prefix-key)
+	prefix_key=$(tmux show-option -gqv @sessionizer-prefix-key)
 else
-  prefix_key="f"
+	prefix_key="f"
 fi
 
 find_key=$(tmux_option "@sessionizer-find-key" "f")
@@ -46,10 +46,10 @@ popup_height=$(tmux_option "@sessionizer-popup-height" "85%")
 # display-popup landed in tmux 3.2; parses "tmux 3.3a" / "tmux next-3.4" by
 # taking the first M.N in `tmux -V`.
 tmux_supports_popup() {
-  local ver
-  ver=$(tmux -V | grep -oE '[0-9]+\.[0-9]+' | head -1)
-  [ -z "$ver" ] && return 1
-  awk -v v="$ver" 'BEGIN { split(v, a, "."); exit !(a[1] > 3 || (a[1] == 3 && a[2] >= 2)) }'
+	local ver
+	ver=$(tmux -V | grep -oE '[0-9]+\.[0-9]+' | head -1)
+	[ -z "$ver" ] && return 1
+	awk -v v="$ver" 'BEGIN { split(v, a, "."); exit !(a[1] > 3 || (a[1] == 3 && a[2] >= 2)) }'
 }
 
 use_popup=0
@@ -70,32 +70,32 @@ esac
 # root-table key -- a bare "f" as one would eat the key everywhere; for a
 # no-prefix entry point, add your own `bind -n M-s switch-client -T sessions`.
 if [ -n "$prefix_key" ]; then
-  tmux bind-key "$prefix_key" switch-client -T sessions
-  bind_table=(-T sessions)
+	tmux bind-key "$prefix_key" switch-client -T sessions
+	bind_table=(-T sessions)
 else
-  bind_table=()
+	bind_table=()
 fi
 
 if [ "$use_popup" = 1 ]; then
-  tmux bind-key "${bind_table[@]}" "$find_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer"
+	tmux bind-key "${bind_table[@]}" "$find_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer"
 else
-  tmux bind-key "${bind_table[@]}" "$find_key" run-shell "tmux neww '$SCRIPTS/sessionizer'"
+	tmux bind-key "${bind_table[@]}" "$find_key" run-shell "tmux neww '$SCRIPTS/sessionizer'"
 fi
 
 # Worktrees of the current pane's repo. No path argument in either branch:
 # display-popup wouldn't expand #{pane_current_path}, so the script asks tmux
 # for it, and in a `neww` the new pane starts there (-c) and is the active one.
 if [ "$use_popup" = 1 ]; then
-  tmux bind-key "${bind_table[@]}" "$worktrees_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer --worktrees"
+	tmux bind-key "${bind_table[@]}" "$worktrees_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer --worktrees"
 else
-  tmux bind-key "${bind_table[@]}" "$worktrees_key" run-shell "tmux neww -c '#{pane_current_path}' '$SCRIPTS/sessionizer --worktrees'"
+	tmux bind-key "${bind_table[@]}" "$worktrees_key" run-shell "tmux neww -c '#{pane_current_path}' '$SCRIPTS/sessionizer --worktrees'"
 fi
 
 # Marks (harpoon)
 if [ "$use_popup" = 1 ]; then
-  tmux bind-key "${bind_table[@]}" "$edit_key" display-popup -w60% -h40% -E "$SCRIPTS/sessionizer --edit"
+	tmux bind-key "${bind_table[@]}" "$edit_key" display-popup -w60% -h40% -E "$SCRIPTS/sessionizer --edit"
 else
-  tmux bind-key "${bind_table[@]}" "$edit_key" run-shell "tmux neww '$SCRIPTS/sessionizer --edit'"
+	tmux bind-key "${bind_table[@]}" "$edit_key" run-shell "tmux neww '$SCRIPTS/sessionizer --edit'"
 fi
 tmux bind-key "${bind_table[@]}" "$add_key" run-shell "$SCRIPTS/sessionizer --add '#{pane_current_path}'"
 tmux bind-key "${bind_table[@]}" "$mark1_key" run-shell "$SCRIPTS/sessionizer --mark 1"
@@ -114,7 +114,7 @@ tmux bind-key "${bind_table[@]}" "$mark4_key" run-shell "$SCRIPTS/sessionizer --
 # its own, but `neww` makes its own pane the active one first, so the origin
 # has to be passed in (run-shell expands #{pane_id}, display-popup wouldn't).
 if [ "$use_popup" = 1 ]; then
-  tmux bind-key "$ai_jump_key" display-popup -w80% -h80% -E "$SCRIPTS/ai-jump"
+	tmux bind-key "$ai_jump_key" display-popup -w80% -h80% -E "$SCRIPTS/ai-jump"
 else
-  tmux bind-key "$ai_jump_key" run-shell "tmux neww '$SCRIPTS/ai-jump --from #{pane_id}'"
+	tmux bind-key "$ai_jump_key" run-shell "tmux neww '$SCRIPTS/ai-jump --from #{pane_id}'"
 fi
