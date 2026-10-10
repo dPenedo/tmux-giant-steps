@@ -35,9 +35,8 @@ list_panes() {
 	# System-wide PIDs matching the pattern. Checking the pane's tty isn't
 	# enough: a process in a nested terminal (e.g. Neovim's :terminal) gets
 	# its own pty, so it no longer shares a tty with the pane even though
-	# it's still a descendant in the process tree. The [c] bracket trick
-	# keeps grep from matching its own invocation.
-	hits=$(ps -eo pid=,args= | grep -iE "$(bracket_first_char "$pattern")" | awk '{print $1}' || true)
+	# it's still a descendant in the process tree. pgrep never matches itself.
+	hits=$(pgrep -if -- "$pattern" || true)
 	[ -z "$hits" ] && return 0
 
 	# System-wide pid -> ppid map, used to walk up the process tree.
@@ -110,16 +109,6 @@ list_panes() {
 
 	[ ${#rows[@]} -gt 0 ] && printf '%s\n' "${rows[@]}" | sort -t$'\t' -s -n -k1,1 | cut -f2-
 	return 0
-}
-
-# Wraps each pattern term's first char in brackets (claude -> [c]laude), so
-# the `ps | grep` invocation doesn't match itself.
-bracket_first_char() {
-	awk -F'|' '{
-		for (i = 1; i <= NF; i++) {
-			printf "%s[%s]%s", (i > 1 ? "|" : ""), substr($i, 1, 1), substr($i, 2)
-		}
-	}' <<<"$1"
 }
 
 # Pane to push to the bottom of the list. $TMUX_PANE is no use here: inside a

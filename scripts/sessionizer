@@ -20,12 +20,12 @@
 #     sessionizer --kill          internal: Ctrl-x from the picker
 set -eu
 
-SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SELF_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$SELF_DIR/lib/config.sh"
 . "$SELF_DIR/lib/preview.sh"
 . "$SELF_DIR/lib/git.sh"
 
-SEARCH_PATH=$(tmux_option "@sessionizer-search-path" "~/repos")
+SEARCH_PATH=$(tmux_option "@sessionizer-search-path" "$HOME/repos")
 EXTRA_PATH=$(tmux_option "@sessionizer-extra-path" "")
 MAX_DEPTH=$(tmux_option "@sessionizer-max-depth" "1")
 # Paths, relative to the repo root, that a new worktree gets from the main
@@ -432,7 +432,7 @@ offer_branch_delete() {
 list_worktrees() {
 	main=$(repo_main "$1") || return 0
 	here=$(find_worktree_root "$1") || here=""
-	[ -n "$here" ] && here=$(CDPATH= cd -- "$here" && pwd -P)
+	[ -n "$here" ] && here=$(CDPATH='' cd -- "$here" && pwd -P)
 	git -C "$main" worktree list --porcelain | sed -n 's/^worktree //p' | {
 		last=""
 		while IFS= read -r wt; do

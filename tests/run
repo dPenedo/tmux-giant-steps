@@ -8,6 +8,9 @@
 #          tests/run unit                          # tests/unit only
 #          tests/run exec                          # tests/exec only
 #          tests/run tests/unit/config_test.sh      # a single file
+#
+# A test that returns 77 (autotools' convention) is reported as skipped,
+# e.g. a lint check when the linter isn't installed.
 set -eu
 
 # Tests that invoke sessionizer/ai-jump without capturing their output (see
@@ -18,8 +21,8 @@ set -eu
 # always fails fast, regardless of where tests/run is invoked from.
 exec </dev/null
 
-SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PROJECT_ROOT=$(CDPATH= cd -- "$SELF_DIR/.." && pwd)
+SELF_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH='' cd -- "$SELF_DIR/.." && pwd)
 export PROJECT_ROOT
 export SCRIPTS="$PROJECT_ROOT/scripts"
 
@@ -38,6 +41,7 @@ collect_files() {
 
 total=0
 failed=0
+skipped=0
 
 files=$(collect_files "$@")
 [ -z "$files" ] && {
@@ -51,16 +55,23 @@ for file in $files; do
 	for name in $names; do
 		total=$((total + 1))
 		rel=${file#"$SELF_DIR"/}
-		if out=$(
+		status=0
+		out=$(
 			{
 				set -eu
 				. "$SELF_DIR/lib/assert.sh"
 				. "$SELF_DIR/lib/harness.sh"
+				# shellcheck source=/dev/null
 				. "$file"
 				"$name"
 			} 2>&1
-		); then
+		) || status=$?
+		if [ "$status" -eq 0 ]; then
 			echo "ok   $rel :: $name"
+		elif [ "$status" -eq 77 ]; then
+			skipped=$((skipped + 1))
+			echo "skip $rel :: $name"
+			printf '%s\n' "$out" | sed 's/^/       /'
 		else
 			failed=$((failed + 1))
 			echo "FAIL $rel :: $name"
@@ -71,7 +82,11 @@ done
 
 echo
 if [ "$failed" -eq 0 ]; then
-	echo "$total tests, todos OK"
+	if [ "$skipped" -eq 0 ]; then
+		echo "$total tests, todos OK"
+	else
+		echo "$total tests, todos OK ($skipped saltados)"
+	fi
 	exit 0
 else
 	echo "$total tests, $failed fallidos"

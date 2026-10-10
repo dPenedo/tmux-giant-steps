@@ -82,7 +82,7 @@ test_state_option_colors_and_ranks_rows() {
 		fail "the three fake-claude processes never showed up"
 	tmux set -g @ai-jump-state-option @agent_state
 	tmux set -g @ai-jump-state-colors "waiting=1,done=2"
-	tmux set -w -t "$second" @agent_state done
+	tmux set -w -t "$second" @agent_state "done"
 	tmux set -w -t "$third" @agent_state waiting
 
 	out=$(bash "$SCRIPTS/ai-jump" --list 'claude')

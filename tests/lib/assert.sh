@@ -31,3 +31,9 @@ fail() {
 	echo "  ${1:-failure}" >&2
 	exit 1
 }
+
+# skip <reason>: reports the test as skipped (exit 77, see tests/run).
+skip() {
+	echo "  ${1:-skipped}" >&2
+	exit 77
+}

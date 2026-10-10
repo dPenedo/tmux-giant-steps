@@ -5,6 +5,7 @@
 test_expand_home_tilde_slash() {
 	. "$PROJECT_ROOT/scripts/lib/config.sh"
 	HOME=/home/testuser
+	# shellcheck disable=SC2088 # the literal, unexpanded ~ is the input under test
 	assert_eq "/home/testuser/foo/bar" "$(expand_home '~/foo/bar')"
 }
 

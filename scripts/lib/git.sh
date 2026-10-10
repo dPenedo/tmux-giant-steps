@@ -25,7 +25,7 @@ worktree_read() {
 		# worktree.useRelativePaths writes it relative to the worktree.
 		case "$wt_gitdir" in
 		/*) ;;
-		*) wt_gitdir=$(CDPATH= cd -- "$wt_dir/$wt_gitdir" 2>/dev/null && pwd -P) || return 1 ;;
+		*) wt_gitdir=$(CDPATH='' cd -- "$wt_dir/$wt_gitdir" 2>/dev/null && pwd -P) || return 1 ;;
 		esac
 		case "$wt_gitdir" in
 		# A submodule's .git file points into .git/modules/ instead: not ours.
@@ -43,6 +43,7 @@ worktree_read() {
 	"ref: refs/heads/"*) wt_branch=${wt_head#"ref: refs/heads/"} ;;
 	*) wt_branch=detached ;;
 	esac
+	# shellcheck disable=SC2034 # wt_label is read by the scripts sourcing this
 	if [ "$wt_kind" = linked ]; then
 		wt_label="[$wt_branch] $WT_ARROW ${wt_main##*/}"
 	else

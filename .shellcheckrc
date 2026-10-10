@@ -1,0 +1,4 @@
+# Follow the scripts' `source "$SELF_DIR/lib/..."` from the script's own dir,
+# so the lib functions and the wt_* variables they set are visible.
+external-sources=true
+source-path=SCRIPTDIR
