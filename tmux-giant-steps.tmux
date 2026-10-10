@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# TPM bootstrap: registers the "sessions" key-table and the
-# sessionizer/marks/ai-jump binds. Every key is configurable via @option in
-# .tmux.conf; the defaults match the original setup.
+# TPM entry point: sets up the key bindings.
 set -euo pipefail
 
 CURRENT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,16 +9,12 @@ tmux_option() {
 	local val
 	val=$(tmux show-option -gqv "$1" 2>/dev/null)
 	[ -n "$val" ] || val="$2"
-	# tmux stores "\;" in an @option as a bare ";", and a bare ";" in a
-	# bind-key argument is its own command separator, so hand it back escaped.
+	# A bare ";" is a command separator for bind-key.
 	[ "$val" = ";" ] && val='\;'
 	printf '%s\n' "$val"
 }
 
-# Not via tmux_option: an @option set to "" reads back exactly like an unset
-# one through `show-option -gqv`, and "" is a meaningful value here -- it's how
-# you ask for flat binds with no key-table at all. `show-options -g <name>`
-# does tell the two apart (it fails outright when the option was never set).
+# "" means flat binds, and show-option -gqv can't tell "" from unset.
 if tmux show-options -g @sessionizer-prefix-key >/dev/null 2>&1; then
 	prefix_key=$(tmux show-option -gqv @sessionizer-prefix-key)
 else
@@ -37,14 +31,12 @@ mark3_key=$(tmux_option "@sessionizer-mark3-key" "l")
 mark4_key=$(tmux_option "@sessionizer-mark4-key" ";")
 ai_jump_key=$(tmux_option "@ai-jump-key" "Tab")
 
-# Main picker: opens in a new window by default (closes itself on exit); on
-# tmux >= 3.2 it can open in a popup instead (@sessionizer-popup-mode).
+# Popups need tmux 3.2; otherwise the pickers open in a new window.
 popup_mode=$(tmux_option "@sessionizer-popup-mode" "auto")
 popup_width=$(tmux_option "@sessionizer-popup-width" "85%")
 popup_height=$(tmux_option "@sessionizer-popup-height" "85%")
 
-# display-popup landed in tmux 3.2; parses "tmux 3.3a" / "tmux next-3.4" by
-# taking the first M.N in `tmux -V`.
+# Handles versions like "tmux 3.3a" and "tmux next-3.4".
 tmux_supports_popup() {
 	local ver
 	ver=$(tmux -V | grep -oE '[0-9]+\.[0-9]+' | head -1)
@@ -59,16 +51,9 @@ off) use_popup=0 ;;
 *) tmux_supports_popup && use_popup=1 ;;
 esac
 
-# @sessionizer-prefix-key gives the sessionizer its own namespace: the key
-# goes *after* tmux's prefix and only opens the "sessions" key-table, so its
-# binds are three-key chords (prefix f f, prefix f j...). Default because a
-# plugin claiming eight keys on the prefix table would silently outbid binds
-# the user already has -- TPM runs last, so the plugin always wins, with no
-# warning. This way it claims one key, and only clobbers `find-window`.
-#
-# Set it to "" for flat binds on tmux's own prefix instead. It is never a
-# root-table key -- a bare "f" as one would eat the key everywhere; for a
-# no-prefix entry point, add your own `bind -n M-s switch-client -T sessions`.
+# prefix f opens the "sessions" table, so the plugin takes one key from the
+# prefix table instead of eight (TPM runs last and would override the
+# user's own binds).
 if [ -n "$prefix_key" ]; then
 	tmux bind-key "$prefix_key" switch-client -T sessions
 	bind_table=(-T sessions)
@@ -82,9 +67,7 @@ else
 	tmux bind-key "${bind_table[@]}" "$find_key" run-shell "tmux neww '$SCRIPTS/sessionizer'"
 fi
 
-# Worktrees of the current pane's repo. No path argument in either branch:
-# display-popup wouldn't expand #{pane_current_path}, so the script asks tmux
-# for it, and in a `neww` the new pane starts there (-c) and is the active one.
+# display-popup doesn't expand #{...}, so the script asks tmux for the path.
 if [ "$use_popup" = 1 ]; then
 	tmux bind-key "${bind_table[@]}" "$worktrees_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer --worktrees"
 else
@@ -103,16 +86,8 @@ tmux bind-key "${bind_table[@]}" "$mark2_key" run-shell "$SCRIPTS/sessionizer --
 tmux bind-key "${bind_table[@]}" "$mark3_key" run-shell "$SCRIPTS/sessionizer --mark 3"
 tmux bind-key "${bind_table[@]}" "$mark4_key" run-shell "$SCRIPTS/sessionizer --mark 4"
 
-# Jump to panes running @ai-jump-pattern (default: claude|opencode).
-#
-# Deliberately NOT in $bind_table: @sessionizer-prefix-key namespaces the
-# sessionizer and its marks, and ai-jump is neither -- it's a separate tool
-# that happens to ship here, reached often enough that a three-key chord for
-# it is a downgrade. So it stays on prefix+Tab either way. Never a root key.
-#
-# ai-jump sorts the pane you came from last; in a popup it works that out on
-# its own, but `neww` makes its own pane the active one first, so the origin
-# has to be passed in (run-shell expands #{pane_id}, display-popup wouldn't).
+# ai-jump stays on prefix Tab, outside the sessions table. With neww the new
+# pane becomes the active one, so the origin pane is passed explicitly.
 if [ "$use_popup" = 1 ]; then
 	tmux bind-key "$ai_jump_key" display-popup -w80% -h80% -E "$SCRIPTS/ai-jump"
 else

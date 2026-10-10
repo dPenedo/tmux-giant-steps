@@ -1,6 +1,5 @@
 #!/bin/sh
-# Shared config: XDG dirs, marks.conf path, tmux @options with their
-# defaults. Sourced by the other scripts, not run directly.
+# Paths and tmux options shared by the scripts.
 
 PLUGIN_NAME="tmux-giant-steps"
 
@@ -23,9 +22,8 @@ ensure_config_dir() {
 
 expand_home() {
 	case "$1" in
-	# Manual expansion: these values (tmux @options, marks.conf lines) are
-	# literal strings that never go through an interactive shell, so a bare
-	# "~" wouldn't expand on its own.
+	# tmux options and marks.conf lines never go through a shell, so nothing
+	# expands "~" for us.
 	\~/*) printf '%s' "$HOME/${1#\~/}" ;;
 	"~") printf '%s' "$HOME" ;;
 	*) printf '%s' "$1" ;;

@@ -1,11 +1,8 @@
 #!/bin/sh
-# render_pane <pane-id> [lines]: capture a pane and prep it for an fzf
-# preview. -J rejoins lines tmux wrapped at the pane's original width
-# (usually wider than the preview column); without it, fzf re-wraps
-# already-wrapped lines and the preview looks staircased. The awk pass
-# strips trailing whitespace/SGR codes (\e[...m) that TUI apps pad each
-# line with to paint the background — left in, they break the re-wrap the
-# same way.
+# render_pane <pane-id> [lines]: a pane's content ready for an fzf preview.
+# -J undoes tmux's own wrapping so fzf doesn't wrap it twice, and the awk
+# strips the trailing spaces and color codes TUI apps pad lines with, which
+# break the wrapping the same way.
 render_pane() {
 	pane_id="$1"
 	lines="${2:-200}"

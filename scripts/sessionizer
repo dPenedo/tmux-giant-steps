@@ -1,6 +1,6 @@
 #!/bin/sh
-# sessionizer — fuzzy-find/create/attach tmux sessions by directory, plus
-# harpoon-style marks (add, edit in a popup, jump by numbered slot).
+# sessionizer: pick or create tmux sessions by directory, with harpoon-style
+# marks and git worktrees.
 #
 #   Usage:
 #     sessionizer                 fuzzy picker (fzf), Ctrl-x kills a session,
@@ -28,14 +28,12 @@ SELF_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 SEARCH_PATH=$(tmux_option "@sessionizer-search-path" "$HOME/repos")
 EXTRA_PATH=$(tmux_option "@sessionizer-extra-path" "")
 MAX_DEPTH=$(tmux_option "@sessionizer-max-depth" "1")
-# Paths, relative to the repo root, that a new worktree gets from the main
-# checkout: things git doesn't carry over because they're ignored (.env,
-# node_modules...). Comma-separated.
+# Copied/symlinked from the repo into new worktrees (comma-separated).
 WORKTREE_COPY=$(tmux_option "@sessionizer-worktree-copy" "")
 WORKTREE_SYMLINK=$(tmux_option "@sessionizer-worktree-symlink" "")
 
 usage() {
-	sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+	awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'
 }
 
 switch_to() {
@@ -70,11 +68,8 @@ switch_session() {
 	switch_to "$name"
 }
 
-# Every line the picker shows carries a 2-char marker column: "* " for the
-# session you're already in, "  " for everything else (ai-jump marks the pane
-# you came from the same way). strip_marker() takes it back off before
-# anything acts on the item; it leaves unmarked input alone, so --kill and
-# --fzf-preview can still be called by hand with a bare path or "[TMUX] x".
+# Picker lines start with "* " (current session) or "  ". strip_marker()
+# leaves unmarked input alone, so --kill etc. also work by hand.
 MARK_HERE='* '
 MARK_NONE='  '
 
@@ -86,24 +81,20 @@ strip_marker() {
 	esac
 }
 
-# Fields are tab-separated: the item itself (marker + session or path), then
-# an optional git label ("[branch]", "[branch] ← repo") that's only there to
-# be seen and searched. Everything that acts on a line takes field 1, so the
-# label never reaches it.
+# Lines are "item<TAB>label". The git label is only for display and search;
+# actions always get field 1.
 list_items() {
 	list_sessions
 	list_paths | label_paths
 }
 
-# Dim, so it reads as an annotation next to the item.
 label_field() {
 	[ -n "$1" ] && printf '\t\033[2m%s\033[0m' "$1"
 	return 0
 }
 
-# Sessions, with the current one marked and pushed to the bottom of the
-# block: it's the one you're least likely to want, but hiding it outright
-# (as this did before) also hides its preview.
+# The current session goes last instead of being hidden, so it can still be
+# previewed.
 list_sessions() {
 	if [ -n "${TMUX:-}" ]; then
 		current=$(tmux display-message -p '#S' 2>/dev/null || true)
@@ -122,9 +113,7 @@ list_sessions() {
 		done || true
 }
 
-# Adds the marker column and the git label to list_paths' output, and moves
-# each linked worktree up to sit right after its main checkout (when that is
-# listed too), so a repo and its worktrees read as one block.
+# Adds marker and git label, and moves each worktree right after its repo.
 label_paths() {
 	while IFS= read -r path; do
 		if worktree_read "$path"; then
@@ -263,11 +252,9 @@ edit_marks() {
 	fi
 }
 
-# Ctrl-t runs new_worktree through fzf's become, which inherits fzf's stdout:
-# the $(...) collecting the picker's selection, not the screen. Without this
-# the prompts vanish into that variable and the popup sits blank waiting for
-# input. Keyed on stdin, which become does hand over as the terminal: when
-# it's a pipe instead (tests feeding the answers) stdout is left alone.
+# Under fzf's become, stdout is still the $(...) capturing the selection, so
+# prompts would never show (blank popup). stdin is the terminal there; in
+# tests it's a pipe, and stdout is left alone.
 to_tty() {
 	if [ -t 0 ]; then
 		exec >/dev/tty
@@ -279,8 +266,7 @@ pause() {
 	read -r _ || true
 }
 
-# The directory behind a picker item: a path as-is, a session by where it was
-# started.
+# Directory of a picker item: the path, or where the session was started.
 item_dir() {
 	item=$(strip_marker "$1")
 	case "$item" in
@@ -289,10 +275,8 @@ item_dir() {
 	esac
 }
 
-# Ctrl-t (via fzf's become, so it owns the terminal): asks for a branch, adds
-# a worktree for it next to the main checkout and jumps there. An existing
-# branch (local, or a remote one git can track) is checked out; anything else
-# is created from the main checkout's HEAD.
+# Ctrl-t: ask for a branch, create its worktree next to the repo, jump there.
+# Existing branches (local or remote) are checked out, new ones start at HEAD.
 new_worktree() {
 	to_tty
 	dir=$(item_dir "$1")
@@ -326,10 +310,7 @@ new_worktree() {
 	switch_session "$wt"
 }
 
-# seed_worktree <main> <worktree>: copies @sessionizer-worktree-copy and
-# symlinks @sessionizer-worktree-symlink from the main checkout. Missing
-# sources are skipped, and so is anything the worktree already has (a
-# tracked file): it never overwrites.
+# Skips missing files and never overwrites.
 seed_worktree() {
 	old_ifs=$IFS
 	IFS=','
@@ -364,10 +345,7 @@ seed_one() {
 	fi
 }
 
-# Ctrl-Alt-d: removes a linked worktree, then offers to delete its branch.
-# Deliberately out of the way (an awkward key, then a y/N defaulting to no),
-# and no --force anywhere, so git itself refuses a worktree with uncommitted
-# changes and a branch that isn't merged.
+# Ctrl-Alt-d. Never --force: git refuses if there are uncommitted changes.
 remove_worktree() {
 	dir=$(item_dir "$1")
 	if ! worktree_read "$dir" || [ "$wt_kind" != linked ]; then
@@ -407,9 +385,7 @@ remove_worktree() {
 	fi
 }
 
-# offer_branch_delete <main> <branch>: asks (y/N) to delete <branch>, but only
-# once it's merged into the branch the main checkout is on; `git branch -d`
-# would refuse otherwise anyway. An unmerged branch is kept and said so.
+# Only for merged branches (branch -d would refuse anyway).
 offer_branch_delete() {
 	[ "$2" = detached ] && return 0
 	worktree_read "$1" || return 0
@@ -427,8 +403,7 @@ offer_branch_delete() {
 	return 0
 }
 
-# Every worktree of the repo <path> is in, the one <path> is in marked and
-# last, same as the session you're in in the main picker.
+# Worktrees of the repo containing <path>, the current one marked and last.
 list_worktrees() {
 	main=$(repo_main "$1") || return 0
 	here=$(find_worktree_root "$1") || here=""

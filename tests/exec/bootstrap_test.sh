@@ -28,8 +28,7 @@ test_default_bindings_registered() {
 
 test_empty_prefix_key_falls_back_to_flat_binds() {
 	test_env_setup
-	# "" is a real value here, not "unset" -- it asks for flat binds, and
-	# show-option -gqv can't tell the two apart on its own.
+	# "" (flat binds) is not the same as unset.
 	tmux set-option -g @sessionizer-prefix-key ""
 	tmux run-shell "$PROJECT_ROOT/tmux-giant-steps.tmux"
 	prefix=$(tmux list-keys -T prefix)
@@ -47,10 +46,7 @@ test_mark4_semicolon_key_is_escaped() {
 
 test_mark4_semicolon_key_is_escaped_when_set_explicitly() {
 	test_env_setup
-	# tmux unescapes "\;" down to a bare ";" when storing an @option, so
-	# show-option hands the script back a single character -- this
-	# reproduces that round trip instead of relying on the script's own
-	# already-escaped default.
+	# tmux stores "\;" as ";", so this is what the script reads back.
 	tmux set-option -g @sessionizer-mark4-key "\;"
 	tmux run-shell "$PROJECT_ROOT/tmux-giant-steps.tmux"
 	line=$(tmux list-keys -T sessions | grep -F -- '--mark 4')
@@ -67,7 +63,7 @@ test_custom_find_key_overrides_default() {
 
 test_prefix_key_opens_the_table_from_tmux_own_prefix() {
 	test_env_setup
-	# prefix f, not a bare root-table f -- that would eat the key everywhere.
+	# prefix f, not a root-table f (that would eat the key everywhere).
 	tmux set-option -g @sessionizer-prefix-key "f"
 	tmux run-shell "$PROJECT_ROOT/tmux-giant-steps.tmux"
 	assert_contains "switch-client -T sessions" "$(session_binding prefix f)"

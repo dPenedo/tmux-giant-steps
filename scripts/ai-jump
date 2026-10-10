@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# ai-jump — pick a tmux pane whose process matches a pattern and jump to it
-# (across sessions if needed). Works for any process; the live preview makes
-# it especially handy for AI CLI tools (Claude Code / opencode by default).
+# ai-jump: jump to the tmux pane running a process that matches a pattern
+# (Claude Code / opencode by default), in any session.
 #
 #   Usage:  ai-jump                   # uses @ai-jump-pattern (or the default)
-#           ai-jump '<egrep-pattern>' # one-off pattern for this call
+#           ai-jump '<regex>'         # one-off pattern for this call
 #           ai-jump --from <pane-id>  # pane to sort last (defaults to $TMUX_PANE)
 #           ai-jump --list [pattern]  # internal, used by fzf
 #           ai-jump --preview <pane>  # internal, used by fzf
@@ -19,34 +18,29 @@ source "$SELF_DIR/lib/preview.sh"
 source "$SELF_DIR/lib/git.sh"
 
 DEFAULT_PATTERN="$(tmux_option "@ai-jump-pattern" "claude|opencode")"
-# Optional per-pane state (e.g. set by Claude Code hooks): the name of a
-# window/pane @option holding it, and "state=color,..." where color is an ANSI
-# 0-255 index (so it follows the terminal's palette) and list order is sort
-# priority. Empty option name = no colors, no reordering.
+# Optional pane state (e.g. set from Claude Code hooks): the option holding it,
+# and "state=color,..." with ANSI color numbers, in sort order.
 STATE_OPTION="$(tmux_option "@ai-jump-state-option" "")"
 STATE_COLORS="$(tmux_option "@ai-jump-state-colors" "waiting=1,done=2,working=3")"
 
 usage() {
-	sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+	awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'
 }
 
 list_panes() {
 	local pattern="$1" origin="${2:-}" hits
-	# System-wide PIDs matching the pattern. Checking the pane's tty isn't
-	# enough: a process in a nested terminal (e.g. Neovim's :terminal) gets
-	# its own pty, so it no longer shares a tty with the pane even though
-	# it's still a descendant in the process tree. pgrep never matches itself.
+	# Match processes system-wide and walk up the tree to a pane, rather than
+	# by tty: inside Neovim's :terminal a process gets its own pty.
 	hits=$(pgrep -if -- "$pattern" || true)
 	[ -z "$hits" ] && return 0
 
-	# System-wide pid -> ppid map, used to walk up the process tree.
 	local -A ppid_of
 	local p pp
 	while read -r p pp; do
 		ppid_of[$p]=$pp
 	done < <(ps -eo pid=,ppid=)
 
-	# state -> "rank color", rank being its position in STATE_COLORS.
+	# state -> "rank color"
 	local -A state_style
 	local entry rank=0
 	IFS=',' read -ra entries <<<"$STATE_COLORS"
@@ -55,14 +49,11 @@ list_panes() {
 		rank=$((rank + 1))
 	done
 
-	# The pane the picker was launched from goes last and is flagged with
-	# "*", the same marker sessionizer uses for the session you're in (and
-	# the one tmux itself uses for the current window in `list-windows`).
-	# Every other row is ranked by state (STATE_COLORS order, unknown or no
-	# state after them) and stable-sorted on that.
+	# Rows are sorted by state; the pane you came from is marked "*" and
+	# goes last.
 	local rows=() mark display line style color repo root state_fmt=""
 	[ -n "$STATE_OPTION" ] && state_fmt="#{$STATE_OPTION}"
-	# state goes last: IFS=tab collapses empty fields in the middle.
+	# state goes last: read with IFS=tab collapses empty fields.
 	while IFS=$'\t' read -r pane panepid session wintarget wp win cmd path state; do
 		local hit found=0 walk
 		for hit in $hits; do
@@ -82,8 +73,6 @@ list_panes() {
 			else
 				mark=' '
 			fi
-			# Which checkout the pane is in, so agents running side by side in
-			# worktrees of one repo can be told apart.
 			repo=""
 			if root=$(find_worktree_root "$path") && worktree_read "$root"; then
 				repo="${wt_main##*/} [$wt_branch]"
@@ -98,7 +87,6 @@ list_panes() {
 			else
 				rank=${#entries[@]}
 			fi
-			# The marker stays uncolored so a row still starts with it.
 			display="$mark $display"
 			[ "$mark" = '*' ] && rank=999
 			line=$(printf '%s\t%s\t%s\t%s\t%s' "$rank" "$pane" "$session" "$wintarget" "$display")
@@ -111,13 +99,9 @@ list_panes() {
 	return 0
 }
 
-# Pane to push to the bottom of the list. $TMUX_PANE is no use here: inside a
-# popup it holds whatever the *client's* environment had when it attached, not
-# the pane the popup was opened over. `display-message` does resolve to the
-# client's active pane (i.e. where the user came from) both in a popup and when
-# ai-jump is run by hand from a shell. The `neww` path is the exception — its
-# own new pane is the active one by then — so the bootstrap passes --from
-# '#{pane_id}', which run-shell expands before the window exists.
+# The pane we came from. Not $TMUX_PANE: in a popup that's whatever the
+# client's environment had. display-message gives the right pane, except
+# when run with neww, so the bootstrap passes --from there.
 ORIGIN_PANE=""
 if [ "${1:-}" = "--from" ]; then
 	ORIGIN_PANE="${2:-}"

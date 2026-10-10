@@ -1,175 +1,108 @@
 # Tmux Giant Steps
 
-A tmux plugin to step fast into different contexts: sessions, directories, processes.
+A tmux plugin for jumping between projects, branches and running processes.
 
-Three navigation tools under one config surface, each a different way to
-step in: a fuzzy directory/session switcher (ala [tmux-sessionizer](https://github.com/theprimeagen/tmux-sessionizer)),
-Harpoon-style persistent marks on top of it (ala [harpoon](https://github.com/theprimeagen/harpoon)),
-and a "jump to the pane running X" picker, great for AI CLI tools thanks to its live pane preview.
+Four tools that share one config:
 
-1. **Sessionizer**: fzf switcher for tmux sessions and directories, with a
-   live preview of each session's panes and a kill-session mode (`Ctrl-x`).
-   It knows about git worktrees: it shows each checkout's branch, lists
-   worktrees right after their repo, and can add (`Ctrl-t`) or remove
-   (`Ctrl-Alt-d`) them.
-2. **Harpoon-like marks**: pin up to 4 directories/sessions to a number for
-   instant jumps, and edit the list as plain text with Neovim.
-3. **ai-jump**: fuzzy-jump to any pane running a given process, matched by an
-   `egrep` pattern (Claude Code and OpenCode by default, but any process
-   works). It walks the full process tree, so it also finds processes
-   running inside a nested terminal (e.g. Neovim's `:terminal`), not just
-   the pane's own command. The pane you launched it from is sorted last
-   (the sessionizer likewise hides the session you're already in). Its live
-   preview makes it especially handy for jumping straight to the AI CLI
-   that's mid-answer.
+1. **Sessionizer**: an fzf picker over your tmux sessions and project directories, with a live preview of each session's windows. Inspired by [tmux-sessionizer](https://github.com/theprimeagen/tmux-sessionizer).
+2. **Marks**: pin up to 4 directories to keys for one-keystroke jumps, and edit the list as plain text in Neovim. Inspired by [harpoon](https://github.com/theprimeagen/harpoon).
+3. **Worktrees**: part of the sessionizer. Each git checkout shows its branch, worktrees are listed under their repo, `Ctrl-t` creates one and jumps there, and `prefix f w` switches between the worktrees of the repo you're in.
+4. **ai-jump**: jump to the pane running some process (Claude Code and OpenCode by default, anything matching a regex really), with a live preview of the pane. It finds the process even inside a nested terminal like Neovim's `:terminal`, and shows the repo and branch of each pane, which helps when several agents run in worktrees of the same repo.
 
 ## Requirements
 
 - [fzf](https://github.com/junegunn/fzf)
-- tmux >= 3.2, optional and only needed for popup mode. Without it everything
-  still works, opening in a plain new window instead.
-- Neovim, only needed for editing marks (`prefix f e`)
-- git, only for the worktree features
+- tmux 3.2 or newer for popups; older versions open a new window instead
+- git, for the worktree features
+- Neovim, to edit marks
 
 ## Installation
 
-### With [TPM](https://github.com/tmux-plugins/tpm) (recommended)
-
-Add this to `~/.tmux.conf`:
+With [TPM](https://github.com/tmux-plugins/tpm), add this to `~/.tmux.conf` and press `prefix I`:
 
 ```tmux
 set -g @plugin 'dPenedo/tmux-giant-steps'
-
-run '~/.tmux/plugins/tpm/tpm'
 ```
 
-Then press `prefix + I` to fetch and load it.
-
-### Manual
-
-Clone this repo and source it from `~/.tmux.conf`:
+Without TPM, clone the repo and add:
 
 ```tmux
 run-shell ~/path/to/tmux-giant-steps/tmux-giant-steps.tmux
 ```
 
-## Usage / default key bindings
+## Keys
 
-The sessionizer and its marks live behind `prefix f`, which opens a `sessions`
-key-table; the next key picks the action. Only two keys are claimed on tmux's
-own prefix.
+Everything except ai-jump lives behind `prefix f`:
 
 | Key | Action |
 | --- | --- |
-| `prefix f` `f` | open the session/directory picker |
-| `prefix f` `e` | edit marks (`Enter` on a line jumps to it) |
-| `prefix f` `a` | add the current pane's directory as a mark |
-| `prefix f` `w` | pick among the worktrees of the current pane's repo |
-| `prefix f` `j` / `k` / `l` / `;` | jump to mark 1 / 2 / 3 / 4 |
-| `prefix Tab` | jump to a pane matching `@ai-jump-pattern` |
+| `prefix f f` | session/directory picker |
+| `prefix f w` | worktrees of the current repo |
+| `prefix f e` | edit marks (`Enter` on a line jumps to it) |
+| `prefix f a` | add the current directory as a mark |
+| `prefix f j` / `k` / `l` / `;` | jump to mark 1 / 2 / 3 / 4 |
+| `prefix Tab` | ai-jump |
 
-The extra hop is deliberate. A plugin binding eight keys straight onto the
-prefix table would quietly outbid whatever you have there already — TPM runs
-at the end of your config, so the plugin's binds win, and nothing warns you
-that your `bind j select-pane -D` stopped working. Behind `prefix f` the only
-tmux default it costs you is `find-window`.
+This way the plugin only takes two keys from tmux's prefix table (`f`, which was `find-window`, and `Tab`) instead of overriding your own binds. If you want them flat (`prefix j`, `prefix e`...), set `@sessionizer-prefix-key ""`.
 
-If you'd rather have flat binds — `prefix f`, `prefix j`, `prefix e`… — set
-`@sessionizer-prefix-key ""`. Then it does clobber `find-window`,
-`last-window` (`l`) and `last-pane` (`;`), plus any of `e` `a` `j` `k` you had
-bound. Or set it to another key to move the whole namespace.
+`prefix f` opens a key table called `sessions`, so you can add your own binds to it, or reach it without the prefix:
 
-`ai-jump` stays on `prefix Tab` either way: it's a separate tool from the
-sessionizer and its marks, and reached often enough that a three-key chord
-would be a downgrade.
+```tmux
+bind -T sessions p switch-client -l
+bind -n M-s switch-client -T sessions
+```
 
-The `sessions` key-table is a stable name you can hang your own binds off —
-`bind -T sessions p switch-client -l` and the like. For an entry point that
-skips tmux's prefix entirely, bind that yourself too:
-`bind -n M-s switch-client -T sessions`.
+Inside the picker:
 
-Inside the picker: `Enter` jumps/creates the session, `Ctrl-x` kills the
-selected session.
+- `Enter`: go to the session, creating it if needed
+- `Ctrl-x`: kill the session
+- `Ctrl-t`: new worktree
+- `Ctrl-Alt-d`: remove a worktree
 
-### Git worktrees
+When the picker creates a session for a directory that has a `.tmux-sessionizer` file, it sources it in the new session (or `~/.tmux-sessionizer` if the directory has none). Handy for activating a virtualenv, opening the editor, etc.
 
-Each git checkout in the picker carries its branch, e.g. `[main]`, and a
-linked worktree also names its repo, `[feat/x] ← repo`, listed right after
-that repo. You can search by branch name too.
+## Worktrees
 
-- `Ctrl-t` on a repo (or any of its worktrees, or a session in one) asks for
-  a branch and adds a worktree for it next to the main checkout, named
-  `<repo>-<last segment of the branch>` (`feat/login` → `myrepo-login`; the
-  prompt lets you change it), then jumps to it. An existing branch, local or
-  on a remote, is checked out; any other name is created from the main
-  checkout's `HEAD`. Ignored files it needs (`.env`, `node_modules`...) can
-  come along from the main checkout, see `@sessionizer-worktree-copy` and
-  `@sessionizer-worktree-symlink`.
-- `Ctrl-Alt-d` on a linked worktree removes it and kills its session. It's
-  out of the way on purpose: an awkward key, then a `y/N` that defaults to
-  no. Nothing is ever forced, so with uncommitted changes git refuses and you
-  see why. Then, only if its branch is already merged into the main
-  checkout's branch, a separate `y/N` offers to delete it (`git branch -d`);
-  an unmerged branch is always kept. The main checkout is never touched.
-- `prefix f w` opens the same kind of picker limited to the worktrees of the
-  repo you're in, with the current one last. `Ctrl-t` and `Ctrl-Alt-d` work
-  there too.
+`Ctrl-t` on a repo (or on one of its worktrees) asks for a branch and creates the worktree next to the repo as `<repo>-<branch>`, using the last part of the branch name: `feat/login` in `myrepo` becomes `myrepo-login`. You can change the directory before confirming. If the branch exists, locally or on a remote, it's checked out; otherwise it's created from the repo's `HEAD`.
 
-`ai-jump` shows each pane's repo and branch too, so agents running side by
-side in worktrees of one repo can be told apart.
+Files that git doesn't track, like `.env` or `node_modules`, can be copied or symlinked into new worktrees with `@sessionizer-worktree-copy` and `@sessionizer-worktree-symlink`.
+
+`Ctrl-Alt-d` removes a worktree and its session after asking. It never forces anything: if there are uncommitted changes, git refuses. If the branch is already merged, it also offers to delete it; an unmerged branch is always kept.
 
 ## Configuration
 
-Set any of these as tmux `@options` in `~/.tmux.conf`, before the `run` line:
+These are the defaults; set any of them in `~/.tmux.conf` before loading the plugin.
 
 ```tmux
+# Where to look for projects. ":N" sets the depth for one entry.
 set -g @sessionizer-search-path "~/repos"
-set -g @sessionizer-extra-path "~/work,~/.config/nvim"
+set -g @sessionizer-extra-path ""          # extra directories, added as they are
 set -g @sessionizer-max-depth "1"
 
-set -g @sessionizer-prefix-key "f"       # "" for flat binds on tmux's prefix
+set -g @sessionizer-prefix-key "f"         # "" for flat binds
 set -g @sessionizer-find-key "f"
+set -g @sessionizer-worktrees-key "w"
 set -g @sessionizer-edit-key "e"
 set -g @sessionizer-add-key "a"
-set -g @sessionizer-worktrees-key "w"
-set -g @sessionizer-worktree-copy ""          # e.g. ".env,.claude/settings.local.json"
-set -g @sessionizer-worktree-symlink ""       # e.g. "node_modules"
 set -g @sessionizer-mark1-key "j"
 set -g @sessionizer-mark2-key "k"
 set -g @sessionizer-mark3-key "l"
-set -g @sessionizer-mark4-key "\;"
+set -g @sessionizer-mark4-key "\;"         # ";" has to be escaped in tmux
 
-set -g @sessionizer-popup-mode "auto"    # on | off | auto
+# Copied or symlinked from the repo into each new worktree, comma-separated
+set -g @sessionizer-worktree-copy ""       # e.g. ".env"
+set -g @sessionizer-worktree-symlink ""    # e.g. "node_modules"
+
+set -g @sessionizer-popup-mode "auto"      # on, off, or auto (popup if tmux supports it)
 set -g @sessionizer-popup-width "85%"
 set -g @sessionizer-popup-height "85%"
 
 set -g @ai-jump-key "Tab"
-set -g @ai-jump-pattern "claude|opencode"     # or e.g. "vite|jest --watch|psql"
-set -g @ai-jump-state-option ""               # e.g. "@agent_state"
+set -g @ai-jump-pattern "claude|opencode"  # any regex, e.g. "vite|jest --watch|psql"
+set -g @ai-jump-state-option ""
 set -g @ai-jump-state-colors "waiting=1,done=2,working=3"
 ```
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `@sessionizer-search-path` | `~/repos` | Comma-separated roots to search for directories. Append `:N` to an entry to override its depth, e.g. `~/repos:2`. |
-| `@sessionizer-extra-path` | *(empty)* | Comma-separated extra paths, added as-is regardless of depth. |
-| `@sessionizer-max-depth` | `1` | Default search depth for `@sessionizer-search-path` entries. |
-| `@sessionizer-prefix-key` | `f` | Key that opens the `sessions` key-table holding the sessionizer/marks binds, i.e. `prefix f <key>`. Always goes through tmux's prefix; see above for a root-table entry point. Set to `""` for flat binds and no key-table. Doesn't affect `@ai-jump-key`. |
-| `@sessionizer-find-key` | `f` | Opens the fuzzy picker, inside the key-table (so `prefix f f` by default). |
-| `@sessionizer-edit-key` | `e` | Edits `marks.conf` in Neovim. |
-| `@sessionizer-add-key` | `a` | Adds the current pane's directory as a new mark. |
-| `@sessionizer-worktrees-key` | `w` | Opens the picker over the worktrees of the current pane's repo. |
-| `@sessionizer-worktree-copy` | *(empty)* | Comma-separated paths, relative to the repo root, copied from the main checkout into each new worktree (`Ctrl-t`). Missing ones are skipped and nothing already in the worktree is overwritten. |
-| `@sessionizer-worktree-symlink` | *(empty)* | Same, but symlinked to the main checkout's copy instead, for big shared things like `node_modules`. |
-| `@sessionizer-mark1-key` … `@sessionizer-mark4-key` | `j` `k` `l` `\;` | Jump straight to mark *N*. Note `;` must be escaped as `\;`, tmux's own command separator. |
-| `@sessionizer-popup-mode` | `auto` | `on` always uses `display-popup`, `off` always opens a new window, `auto` picks based on the installed tmux version. |
-| `@sessionizer-popup-width` / `@sessionizer-popup-height` | `85%` | Size of the picker's popup (only applies in popup mode). |
-| `@ai-jump-key` | `Tab` | Key that runs the pane picker, always on tmux's own `prefix` (never a root key, never in the `sessions` table). |
-| `@ai-jump-pattern` | `claude\|opencode` | `egrep` pattern matched against running processes. Not limited to AI CLIs, e.g. `"vite\|jest --watch\|psql"` works to jump to dev servers, test watchers, or DB clients. |
-| `@ai-jump-state-option` | *(empty)* | Name of a window or pane `@option` holding each pane's state, e.g. `@agent_state` set from Claude Code hooks (`tmux set -w -t "$TMUX_PANE" @agent_state waiting`). When set, rows are colored and sorted by that state. Empty disables both. |
-| `@ai-jump-state-colors` | `waiting=1,done=2,working=3` | `state=color` pairs, color being an ANSI 0-255 index so it follows your terminal's palette. List order is sort priority; panes with an unlisted or no state go after them, and the pane you came from still goes last. |
+`@ai-jump-state-option` is the name of a pane or window option that holds a state for each pane, for example `@agent_state` set from Claude Code hooks with `tmux set -w -t "$TMUX_PANE" @agent_state waiting`. When it's set, ai-jump colors the panes by state and sorts them in the order of `@ai-jump-state-colors`, where each color is an ANSI color number (0-255).
 
-Marks aren't a tmux `@option`: they're a plain text file at
-`$XDG_CONFIG_HOME/tmux-giant-steps/marks.conf` (defaults to
-`~/.config/tmux-giant-steps/marks.conf`), one path per line, edited directly
-through `prefix e`.
+Marks are stored in `~/.config/tmux-giant-steps/marks.conf` (or under `$XDG_CONFIG_HOME`), one path per line.

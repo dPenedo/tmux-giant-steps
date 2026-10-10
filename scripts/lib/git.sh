@@ -1,18 +1,17 @@
 #!/bin/sh
-# Git worktree helpers shared by sessionizer and ai-jump. Sourced, not run.
+# Git worktree helpers for sessionizer and ai-jump.
 #
-# Everything except repo_main reads .git / HEAD directly instead of calling
-# git: sessionizer --list runs them once per directory under the search path,
-# and a fork+exec of git each time is what would make the picker slow to open.
+# Everything but repo_main reads .git and HEAD directly: --list runs this for
+# every directory, and calling git each time makes the picker slow.
 
-WT_ARROW=$(printf '\342\206\220') # "←", built once rather than per directory
+WT_ARROW=$(printf '\342\206\220') # ←
 
-# worktree_read <dir>: sets wt_kind / wt_main / wt_branch / wt_label if <dir>
-# is itself the top of a git checkout, returns 1 otherwise. wt_kind is "main"
-# for the repo's own checkout and "linked" for a `git worktree add` one, whose
-# main is the checkout its .git file points back into. wt_branch is "detached"
-# when HEAD isn't a branch. wt_label is what the pickers show next to it:
-# "[main]", or "[feat/x] ← repo" for a linked worktree of "repo".
+# worktree_read <dir>: if <dir> is the top of a git checkout, sets
+#   wt_kind    "main" or "linked" (a `git worktree add` one)
+#   wt_main    the repo's main checkout
+#   wt_branch  branch name, or "detached"
+#   wt_label   "[branch]", or "[branch] ← repo" for a linked worktree
+# Returns 1 otherwise. Sets variables instead of printing to avoid a subshell.
 worktree_read() {
 	wt_dir=${1%/}
 	if [ -d "$wt_dir/.git" ]; then
@@ -28,7 +27,7 @@ worktree_read() {
 		*) wt_gitdir=$(CDPATH='' cd -- "$wt_dir/$wt_gitdir" 2>/dev/null && pwd -P) || return 1 ;;
 		esac
 		case "$wt_gitdir" in
-		# A submodule's .git file points into .git/modules/ instead: not ours.
+		# Submodules point into .git/modules/ instead.
 		*/worktrees/*) ;;
 		*) return 1 ;;
 		esac
@@ -51,8 +50,7 @@ worktree_read() {
 	fi
 }
 
-# find_worktree_root <dir>: the nearest ancestor-or-self of <dir> that is the
-# top of a git checkout (for a pane or session sitting in a subdirectory).
+# find_worktree_root <dir>: top of the checkout <dir> is in.
 find_worktree_root() {
 	wt_root=${1%/}
 	while [ -n "$wt_root" ]; do
@@ -65,15 +63,13 @@ find_worktree_root() {
 	return 1
 }
 
-# worktree_dir_for_branch <main> <branch>: where a new worktree for <branch>
-# goes: next to <main>, named "<main>-<last segment of branch>"
-# (feat/eguneko-esaera -> ardiketak-eguneko-esaera).
+# worktree_dir_for_branch /r/repo feat/login -> /r/repo-login
 worktree_dir_for_branch() {
 	printf '%s/%s-%s\n' "$(dirname -- "$1")" "${1##*/}" "${2##*/}"
 }
 
-# repo_main <dir>: the main checkout of the repo <dir> belongs to, anywhere
-# inside it. Asks git, so it's for one-off actions, not for listings.
+# repo_main <dir>: main checkout of the repo <dir> is in. Calls git, so not
+# for listings.
 repo_main() {
 	wt_common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
 	case "$wt_common" in

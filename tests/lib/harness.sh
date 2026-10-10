@@ -23,8 +23,7 @@ test_env_setup() {
 }
 
 # wait_for_pane_text <pane> <text> [tries=25] [interval=0.2]
-# Polls capture-pane until <text> shows up or attempts run out — avoids a
-# fixed sleep while waiting for send-keys output.
+# Polls capture-pane until <text> shows up, instead of a fixed sleep.
 wait_for_pane_text() {
 	pane="$1"
 	needle="$2"
