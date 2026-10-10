@@ -32,7 +32,7 @@ test_list_marks_current_session_and_puts_it_last() {
 	out=$(cat "$TEST_TMPDIR/list.txt")
 	assert_contains "* [TMUX] dummy" "$out"
 	assert_contains "  [TMUX] otra" "$out"
-	assert_eq "* [TMUX] dummy" "$(grep '\[TMUX\]' "$TEST_TMPDIR/list.txt" | tail -1)" \
+	assert_eq "* [TMUX] dummy" "$(grep '\[TMUX\]' "$TEST_TMPDIR/list.txt" | tail -1 | cut -f1)" \
 		"(the session you're in should sort last)"
 }
 
@@ -171,4 +171,94 @@ test_switch_session_hydrates_from_local_tmux_sessionizer_file() {
 	printf 'touch %s/hydrated-marker\n' "$TEST_TMPDIR" >"$TEST_TMPDIR/hydrated/.tmux-sessionizer"
 	sh "$SCRIPTS/sessionizer" "$TEST_TMPDIR/hydrated" || true
 	wait_until 25 0.2 test -f "$TEST_TMPDIR/hydrated-marker" || fail ".tmux-sessionizer was not sourced"
+}
+
+# --- git worktrees ---
+
+# wt_repo_setup: $TEST_TMPDIR/repos/{repo,otro,repo-x}, repo-x being a
+# linked worktree of repo on feat/x, with otro sorted between them by find.
+wt_repo_setup() {
+	test_env_setup
+	TEST_TMPDIR=$(cd "$TEST_TMPDIR" && pwd -P)
+	make_repo "$TEST_TMPDIR/repos/repo"
+	mkdir -p "$TEST_TMPDIR/repos/otro"
+	git -C "$TEST_TMPDIR/repos/repo" worktree add -q -b feat/x "$TEST_TMPDIR/repos/repo-x"
+	tmux set-option -g @sessionizer-search-path "$TEST_TMPDIR/repos:1"
+}
+
+test_list_labels_checkouts_and_groups_worktrees_after_their_repo() {
+	wt_repo_setup
+	out=$(sh "$SCRIPTS/sessionizer" --list | grep -v '\[TMUX\]')
+	assert_contains "[main]" "$(printf '%s\n' "$out" | grep "/repos/repo	")"
+	assert_contains "[feat/x]" "$(printf '%s\n' "$out" | grep "/repos/repo-x	")"
+	assert_eq "$TEST_TMPDIR/repos/repo-x" \
+		"$(printf '%s\n' "$out" | grep -A1 "/repos/repo	" | tail -1 | cut -f1 | sed 's/^ *//')" \
+		"(the worktree should follow its main checkout)"
+	assert_not_contains "	" "$(printf '%s\n' "$out" | grep "/repos/otro")"
+}
+
+test_fzf_preview_git_dir_shows_branch_and_log() {
+	wt_repo_setup
+	out=$(sh "$SCRIPTS/sessionizer" --fzf-preview "$TEST_TMPDIR/repos/repo-x")
+	assert_contains "[feat/x]" "$out"
+	assert_contains "init" "$out"
+}
+
+test_new_worktree_creates_branch_dir_and_session() {
+	wt_repo_setup
+	printf 'feat/nueva\n\n' | sh "$SCRIPTS/sessionizer" --new-worktree "  $TEST_TMPDIR/repos/repo" >/dev/null || true
+	[ -f "$TEST_TMPDIR/repos/repo-nueva/.git" ] || fail "worktree dir repo-nueva was not created"
+	assert_eq "feat/nueva" "$(git -C "$TEST_TMPDIR/repos/repo-nueva" branch --show-current)"
+	tmux has-session -t "=repo-nueva" 2>/dev/null || fail "no session for the new worktree"
+}
+
+test_new_worktree_checks_out_an_existing_branch_into_a_custom_dir() {
+	wt_repo_setup
+	git -C "$TEST_TMPDIR/repos/repo" branch ya-existe
+	printf 'ya-existe\notro-nombre\n' | sh "$SCRIPTS/sessionizer" --new-worktree "$TEST_TMPDIR/repos/repo" >/dev/null || true
+	assert_eq "ya-existe" "$(git -C "$TEST_TMPDIR/repos/otro-nombre" branch --show-current)"
+}
+
+test_new_worktree_with_empty_branch_does_nothing() {
+	wt_repo_setup
+	printf '\n' | sh "$SCRIPTS/sessionizer" --new-worktree "$TEST_TMPDIR/repos/repo" >/dev/null
+	assert_eq "2" "$(git -C "$TEST_TMPDIR/repos/repo" worktree list | wc -l | tr -d ' ')"
+}
+
+test_remove_worktree_removes_clean_one_and_kills_its_session() {
+	wt_repo_setup
+	tmux new-session -d -s repo-x -c "$TEST_TMPDIR/repos/repo-x"
+	printf 'y\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "  $TEST_TMPDIR/repos/repo-x" >/dev/null
+	[ -e "$TEST_TMPDIR/repos/repo-x" ] && fail "repo-x should be gone"
+	tmux has-session -t "=repo-x" 2>/dev/null && fail "the repo-x session should be dead"
+	git -C "$TEST_TMPDIR/repos/repo" show-ref --verify --quiet refs/heads/feat/x || fail "the branch should be kept"
+}
+
+test_remove_worktree_refuses_with_uncommitted_changes() {
+	wt_repo_setup
+	: >"$TEST_TMPDIR/repos/repo-x/sucio.txt"
+	printf 'y\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null 2>&1
+	[ -f "$TEST_TMPDIR/repos/repo-x/sucio.txt" ] || fail "a dirty worktree must not be removed"
+}
+
+test_remove_worktree_needs_a_yes() {
+	wt_repo_setup
+	printf '\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo-x" >/dev/null
+	[ -d "$TEST_TMPDIR/repos/repo-x" ] || fail "should not remove without confirmation"
+}
+
+test_remove_worktree_ignores_the_main_checkout() {
+	wt_repo_setup
+	printf 'y\n\n' | sh "$SCRIPTS/sessionizer" --remove-worktree "$TEST_TMPDIR/repos/repo" >/dev/null
+	[ -d "$TEST_TMPDIR/repos/repo/.git" ] || fail "the main checkout must never be removed"
+}
+
+test_list_worktrees_marks_the_current_one_last() {
+	wt_repo_setup
+	mkdir -p "$TEST_TMPDIR/repos/repo-x/sub"
+	out=$(sh "$SCRIPTS/sessionizer" --list-worktrees "$TEST_TMPDIR/repos/repo-x/sub")
+	assert_eq "2" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+	assert_contains "  $TEST_TMPDIR/repos/repo	" "$(printf '%s\n' "$out" | head -1)"
+	assert_contains "* $TEST_TMPDIR/repos/repo-x	" "$(printf '%s\n' "$out" | tail -1)"
+	assert_not_contains "otro" "$out"
 }

@@ -91,3 +91,16 @@ test_state_option_colors_and_ranks_rows() {
 	assert_contains "$(printf '\033[38;5;1m')" "$(printf '%s\n' "$out" | head -1)" "(waiting color)"
 	assert_eq "0" "$(printf '%s\n' "$out" | tail -1 | grep -c "$(printf '\033')")" "(no state, no color)"
 }
+
+test_list_shows_repo_and_branch_of_the_pane() {
+	test_env_setup
+	make_repo "$TEST_TMPDIR/repo"
+	git -C "$TEST_TMPDIR/repo" worktree add -q -b feat/y "$TEST_TMPDIR/repo-y"
+	mkdir -p "$TEST_TMPDIR/repo-y/sub"
+	tmux new-session -d -s enrama -c "$TEST_TMPDIR/repo-y/sub"
+	tmux send-keys -t enrama '(exec -a fake-claude sleep 30) & disown' C-m
+	wait_until 25 0.2 sh -c "ps -eo args= | grep -qF fake-claude" ||
+		fail "fake-claude process never showed up"
+	out=$(bash "$SCRIPTS/ai-jump" --list 'claude')
+	assert_contains "repo [feat/y]" "$out"
+}

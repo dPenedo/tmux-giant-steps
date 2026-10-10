@@ -4,7 +4,7 @@
 # arrays / BASH_SOURCE).
 
 test_all_scripts_parse_cleanly() {
-	sh_files="$PROJECT_ROOT/scripts/sessionizer $PROJECT_ROOT/scripts/lib/config.sh $PROJECT_ROOT/scripts/lib/preview.sh"
+	sh_files="$PROJECT_ROOT/scripts/sessionizer $PROJECT_ROOT/scripts/lib/config.sh $PROJECT_ROOT/scripts/lib/preview.sh $PROJECT_ROOT/scripts/lib/git.sh"
 	bash_files="$PROJECT_ROOT/scripts/ai-jump $PROJECT_ROOT/tmux-giant-steps.tmux"
 
 	for f in $sh_files; do

@@ -9,6 +9,9 @@ and a "jump to the pane running X" picker, great for AI CLI tools thanks to its 
 
 1. **Sessionizer**: fzf switcher for tmux sessions and directories, with a
    live preview of each session's panes and a kill-session mode (`Ctrl-x`).
+   It knows about git worktrees: it shows each checkout's branch, lists
+   worktrees right after their repo, and can add (`Ctrl-t`) or remove
+   (`Ctrl-d`) them.
 2. **Harpoon-like marks**: pin up to 4 directories/sessions to a number for
    instant jumps, and edit the list as plain text with Neovim.
 3. **ai-jump**: fuzzy-jump to any pane running a given process, matched by an
@@ -25,7 +28,8 @@ and a "jump to the pane running X" picker, great for AI CLI tools thanks to its 
 - [fzf](https://github.com/junegunn/fzf)
 - tmux >= 3.2, optional and only needed for popup mode. Without it everything
   still works, opening in a plain new window instead.
-- Neovim, only needed for editing marks (`prefix e`)
+- Neovim, only needed for editing marks (`prefix f e`)
+- git, only for the worktree features
 
 ## Installation
 
@@ -60,6 +64,7 @@ own prefix.
 | `prefix f` `f` | open the session/directory picker |
 | `prefix f` `e` | edit marks (`Enter` on a line jumps to it) |
 | `prefix f` `a` | add the current pane's directory as a mark |
+| `prefix f` `w` | pick among the worktrees of the current pane's repo |
 | `prefix f` `j` / `k` / `l` / `;` | jump to mark 1 / 2 / 3 / 4 |
 | `prefix Tab` | jump to a pane matching `@ai-jump-pattern` |
 
@@ -86,6 +91,27 @@ skips tmux's prefix entirely, bind that yourself too:
 Inside the picker: `Enter` jumps/creates the session, `Ctrl-x` kills the
 selected session.
 
+### Git worktrees
+
+Each git checkout in the picker carries its branch, e.g. `[main]`, and a
+linked worktree also names its repo, `[feat/x] ← repo`, listed right after
+that repo. You can search by branch name too.
+
+- `Ctrl-t` on a repo (or any of its worktrees, or a session in one) asks for
+  a branch and adds a worktree for it next to the main checkout, named
+  `<repo>-<last segment of the branch>` (`feat/login` → `myrepo-login`; the
+  prompt lets you change it), then jumps to it. An existing branch, local or
+  on a remote, is checked out; any other name is created from the main
+  checkout's `HEAD`.
+- `Ctrl-d` on a linked worktree removes it after a `y/N`, and kills its
+  session. It never forces: with uncommitted changes git refuses and you see
+  why. The branch is kept, and the main checkout is never touched.
+- `prefix f w` opens the same kind of picker limited to the worktrees of the
+  repo you're in, with the current one last.
+
+`ai-jump` shows each pane's repo and branch too, so agents running side by
+side in worktrees of one repo can be told apart.
+
 ## Configuration
 
 Set any of these as tmux `@options` in `~/.tmux.conf`, before the `run` line:
@@ -99,6 +125,7 @@ set -g @sessionizer-prefix-key "f"       # "" for flat binds on tmux's prefix
 set -g @sessionizer-find-key "f"
 set -g @sessionizer-edit-key "e"
 set -g @sessionizer-add-key "a"
+set -g @sessionizer-worktrees-key "w"
 set -g @sessionizer-mark1-key "j"
 set -g @sessionizer-mark2-key "k"
 set -g @sessionizer-mark3-key "l"
@@ -123,6 +150,7 @@ set -g @ai-jump-state-colors "waiting=1,done=2,working=3"
 | `@sessionizer-find-key` | `f` | Opens the fuzzy picker, inside the key-table (so `prefix f f` by default). |
 | `@sessionizer-edit-key` | `e` | Edits `marks.conf` in Neovim. |
 | `@sessionizer-add-key` | `a` | Adds the current pane's directory as a new mark. |
+| `@sessionizer-worktrees-key` | `w` | Opens the picker over the worktrees of the current pane's repo. |
 | `@sessionizer-mark1-key` … `@sessionizer-mark4-key` | `j` `k` `l` `\;` | Jump straight to mark *N*. Note `;` must be escaped as `\;`, tmux's own command separator. |
 | `@sessionizer-popup-mode` | `auto` | `on` always uses `display-popup`, `off` always opens a new window, `auto` picks based on the installed tmux version. |
 | `@sessionizer-popup-width` / `@sessionizer-popup-height` | `85%` | Size of the picker's popup (only applies in popup mode). |

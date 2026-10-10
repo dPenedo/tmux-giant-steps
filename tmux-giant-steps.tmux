@@ -30,6 +30,7 @@ fi
 find_key=$(tmux_option "@sessionizer-find-key" "f")
 edit_key=$(tmux_option "@sessionizer-edit-key" "e")
 add_key=$(tmux_option "@sessionizer-add-key" "a")
+worktrees_key=$(tmux_option "@sessionizer-worktrees-key" "w")
 mark1_key=$(tmux_option "@sessionizer-mark1-key" "j")
 mark2_key=$(tmux_option "@sessionizer-mark2-key" "k")
 mark3_key=$(tmux_option "@sessionizer-mark3-key" "l")
@@ -79,6 +80,15 @@ if [ "$use_popup" = 1 ]; then
   tmux bind-key "${bind_table[@]}" "$find_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer"
 else
   tmux bind-key "${bind_table[@]}" "$find_key" run-shell "tmux neww '$SCRIPTS/sessionizer'"
+fi
+
+# Worktrees of the current pane's repo. No path argument in either branch:
+# display-popup wouldn't expand #{pane_current_path}, so the script asks tmux
+# for it, and in a `neww` the new pane starts there (-c) and is the active one.
+if [ "$use_popup" = 1 ]; then
+  tmux bind-key "${bind_table[@]}" "$worktrees_key" display-popup -w"$popup_width" -h"$popup_height" -E "$SCRIPTS/sessionizer --worktrees"
+else
+  tmux bind-key "${bind_table[@]}" "$worktrees_key" run-shell "tmux neww -c '#{pane_current_path}' '$SCRIPTS/sessionizer --worktrees'"
 fi
 
 # Marks (harpoon)

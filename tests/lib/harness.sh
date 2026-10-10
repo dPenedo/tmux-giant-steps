@@ -55,3 +55,16 @@ wait_until() {
 	done
 	return 1
 }
+
+# make_repo <dir>: a git repo on branch "main" with one empty commit. Global
+# and system git config are ignored so the user's hooks/aliases can't leak in
+# (exported, so the scripts under test see the same).
+make_repo() {
+	GIT_CONFIG_GLOBAL=/dev/null
+	GIT_CONFIG_NOSYSTEM=1
+	GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
+	GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
+	export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+	git init -q -b main "$1"
+	git -C "$1" commit -q --allow-empty -m init
+}

@@ -15,6 +15,8 @@ SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SELF_DIR/lib/config.sh"
 # shellcheck source=lib/preview.sh
 source "$SELF_DIR/lib/preview.sh"
+# shellcheck source=lib/git.sh
+source "$SELF_DIR/lib/git.sh"
 
 DEFAULT_PATTERN="$(tmux_option "@ai-jump-pattern" "claude|opencode")"
 # Optional per-pane state (e.g. set by Claude Code hooks): the name of a
@@ -59,10 +61,10 @@ list_panes() {
 	# the one tmux itself uses for the current window in `list-windows`).
 	# Every other row is ranked by state (STATE_COLORS order, unknown or no
 	# state after them) and stable-sorted on that.
-	local rows=() mark display line style color state_fmt=""
+	local rows=() mark display line style color repo root state_fmt=""
 	[ -n "$STATE_OPTION" ] && state_fmt="#{$STATE_OPTION}"
 	# state goes last: IFS=tab collapses empty fields in the middle.
-	while IFS=$'\t' read -r pane panepid session wintarget wp win cmd state; do
+	while IFS=$'\t' read -r pane panepid session wintarget wp win cmd path state; do
 		local hit found=0 walk
 		for hit in $hits; do
 			walk=$hit
@@ -81,7 +83,13 @@ list_panes() {
 			else
 				mark=' '
 			fi
-			display=$(printf '%-18s  %-7s  %-20s  %s' "$session" "$wp" "$win" "$cmd")
+			# Which checkout the pane is in, so agents running side by side in
+			# worktrees of one repo can be told apart.
+			repo=""
+			if root=$(find_worktree_root "$path") && worktree_read "$root"; then
+				repo="${wt_main##*/} [$wt_branch]"
+			fi
+			display=$(printf '%-18s  %-28s  %-7s  %-20s  %s' "$session" "$repo" "$wp" "$win" "$cmd")
 			style=""
 			[ -n "${state:-}" ] && style=${state_style[$state]:-}
 			if [ -n "$style" ]; then
@@ -98,7 +106,7 @@ list_panes() {
 			rows+=("$line")
 		fi
 	done < <(tmux list-panes -a -F \
-		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t'"$state_fmt")
+		$'#{pane_id}\t#{pane_pid}\t#{session_name}\t#{session_name}:#{window_index}\t#{window_index}.#{pane_index}\t#{window_name}\t#{pane_current_command}\t#{pane_current_path}\t'"$state_fmt")
 
 	[ ${#rows[@]} -gt 0 ] && printf '%s\n' "${rows[@]}" | sort -t$'\t' -s -n -k1,1 | cut -f2-
 	return 0
@@ -153,7 +161,7 @@ sel=$(bash "$self" --from "$ORIGIN_PANE" --list "$PATTERN" | fzf \
 	--with-nth=4 \
 	--preview "bash '$self' --preview {1}" \
 	--preview-window='right,70%,nowrap,follow' \
-	--header='  SESSION              WINDOW   NAME                  CMD   ·  Enter jumps · Ctrl-R refreshes' \
+	--header='  SESSION              REPO [BRANCH]                 WINDOW   NAME                  CMD   ·  Enter jumps · Ctrl-R refreshes' \
 	--bind "ctrl-r:reload(bash '$self' --from '$ORIGIN_PANE' --list '$PATTERN')") || exit 0
 
 [ -z "$sel" ] && exit 0

@@ -19,6 +19,7 @@ test_default_bindings_registered() {
 	assert_contains "switch-client -T sessions" "$(session_binding prefix f)"
 	assert_contains "$PROJECT_ROOT/scripts/sessionizer --edit" "$sessions"
 	assert_contains "$PROJECT_ROOT/scripts/sessionizer --add" "$sessions"
+	assert_contains "$PROJECT_ROOT/scripts/sessionizer --worktrees" "$(session_binding sessions w)"
 	assert_contains "$PROJECT_ROOT/scripts/sessionizer --mark 1" "$sessions"
 	assert_contains "$PROJECT_ROOT/scripts/sessionizer --mark 2" "$sessions"
 	assert_contains "$PROJECT_ROOT/scripts/sessionizer --mark 3" "$sessions"
