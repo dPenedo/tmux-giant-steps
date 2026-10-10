@@ -106,8 +106,8 @@ that repo. You can search by branch name too.
   come along from the main checkout, see `@sessionizer-worktree-copy` and
   `@sessionizer-worktree-symlink`.
 - `Ctrl-Alt-d` on a linked worktree removes it and kills its session. It's
-  awkward on purpose: you confirm by typing the worktree's directory name,
-  and nothing is ever forced, so with uncommitted changes git refuses and you
+  out of the way on purpose: an awkward key, then a `y/N` that defaults to
+  no. Nothing is ever forced, so with uncommitted changes git refuses and you
   see why. Then, only if its branch is already merged into the main
   checkout's branch, a separate `y/N` offers to delete it (`git branch -d`);
   an unmerged branch is always kept. The main checkout is never touched.

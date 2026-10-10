@@ -365,9 +365,9 @@ seed_one() {
 }
 
 # Ctrl-Alt-d: removes a linked worktree, then offers to delete its branch.
-# Deliberately awkward: an out-of-the-way key, the worktree's directory name
-# typed back to confirm, and no --force anywhere, so git itself refuses a
-# worktree with uncommitted changes and a branch that isn't merged.
+# Deliberately out of the way (an awkward key, then a y/N defaulting to no),
+# and no --force anywhere, so git itself refuses a worktree with uncommitted
+# changes and a branch that isn't merged.
 remove_worktree() {
   dir=$(item_dir "$1")
   if ! worktree_read "$dir" || [ "$wt_kind" != linked ]; then
@@ -382,13 +382,12 @@ remove_worktree() {
   printf 'Worktree %s %s\n' "$dir" "$wt_label"
   changes=$(git -C "$dir" status -s 2>/dev/null || true)
   [ -n "$changes" ] && printf '\nUncommitted changes (git will refuse to remove it):\n%s\n' "$changes"
-  printf '\nType "%s" to remove it: ' "$name"
+  printf '\nRemove this worktree? [y/N] '
   read -r answer || answer=""
-  if [ "$answer" != "$name" ]; then
-    printf 'Not removed.\n'
-    pause
-    return 0
-  fi
+  case "$answer" in
+  y | Y | yes) ;;
+  *) return 0 ;;
+  esac
   if ! git -C "$main" worktree remove "$dir"; then
     pause
     return 0
